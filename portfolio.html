@@ -1,0 +1,1099 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>vt220 — abhinav@portfolio</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=VT323&display=swap" rel="stylesheet">
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  :root {
+    /* Amber phosphor (default) */
+    --fg: #ffb000;
+    --fg-bright: #ffd166;
+    --fg-dim: #a86f00;
+    --fg-dimmer: #6b4500;
+    --fg-err: #ff6a3d;
+    --bg: #150900;
+    --bg-darker: #0a0400;
+  }
+
+  /* Green phosphor theme */
+  body.theme-green {
+    --fg: #33ff66;
+    --fg-bright: #a8ffbb;
+    --fg-dim: #1a9933;
+    --fg-dimmer: #0f5a1f;
+    --fg-err: #ff6a3d;
+    --bg: #001a08;
+    --bg-darker: #000d04;
+  }
+
+  /* White/paperwhite phosphor */
+  body.theme-white {
+    --fg: #e8e8e8;
+    --fg-bright: #ffffff;
+    --fg-dim: #888888;
+    --fg-dimmer: #555555;
+    --fg-err: #ff6a3d;
+    --bg: #0a0a0a;
+    --bg-darker: #000000;
+  }
+
+  html, body {
+    height: 100%;
+    width: 100%;
+    overflow: hidden;
+    background: var(--bg-darker);
+    color: var(--fg);
+    font-family: 'VT323', 'IBM Plex Mono', 'Courier New', monospace;
+    font-size: 22px;
+    line-height: 1.25;
+  }
+
+  /* ═══════ CRT FRAME ═══════ */
+  .crt {
+    position: fixed;
+    inset: 0;
+    background:
+      radial-gradient(ellipse at center, var(--bg) 0%, var(--bg-darker) 100%);
+    overflow: hidden;
+    padding: 2vmin 3vmin;
+  }
+
+  /* Scanlines overlay */
+  .crt::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background: repeating-linear-gradient(
+      to bottom,
+      transparent 0,
+      transparent 2px,
+      rgba(0, 0, 0, 0.22) 3px,
+      rgba(0, 0, 0, 0.22) 4px
+    );
+    pointer-events: none;
+    z-index: 10;
+    mix-blend-mode: multiply;
+  }
+
+  /* Vignette + subtle CRT curvature illusion */
+  .crt::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background:
+      radial-gradient(ellipse at center,
+        transparent 40%,
+        rgba(0, 0, 0, 0.35) 85%,
+        rgba(0, 0, 0, 0.7) 100%);
+    pointer-events: none;
+    z-index: 11;
+    box-shadow: inset 0 0 180px rgba(0, 0, 0, 0.6);
+  }
+
+  /* Full-screen flicker */
+  .crt-flicker {
+    position: absolute;
+    inset: 0;
+    background: var(--fg);
+    opacity: 0;
+    mix-blend-mode: screen;
+    pointer-events: none;
+    z-index: 9;
+    animation: flicker 8s infinite;
+  }
+  @keyframes flicker {
+    0%, 100% { opacity: 0; }
+    7.5% { opacity: 0.018; }
+    15% { opacity: 0; }
+    22% { opacity: 0.012; }
+    30% { opacity: 0; }
+    58% { opacity: 0.02; }
+    66% { opacity: 0; }
+  }
+
+  /* Very subtle horizontal scroll (roll) every so often */
+  @keyframes roll {
+    0%, 97%, 100% { transform: translateY(0); }
+    98% { transform: translateY(-2px); }
+    99% { transform: translateY(2px); }
+  }
+
+  /* ═══════ TERMINAL ═══════ */
+  #terminal {
+    position: relative;
+    width: 100%;
+    height: 100%;
+    overflow-y: auto;
+    overflow-x: hidden;
+    padding: 1vmin 1.5vmin;
+    color: var(--fg);
+    text-shadow:
+      0 0 2px rgba(255, 176, 0, 0.7),
+      0 0 6px rgba(255, 120, 0, 0.35);
+    animation: roll 40s infinite;
+    z-index: 2;
+    user-select: text;
+    -webkit-user-select: text;
+  }
+
+  body.theme-green #terminal {
+    text-shadow:
+      0 0 2px rgba(51, 255, 102, 0.7),
+      0 0 6px rgba(30, 200, 80, 0.35);
+  }
+  body.theme-white #terminal {
+    text-shadow:
+      0 0 2px rgba(232, 232, 232, 0.7),
+      0 0 6px rgba(200, 200, 200, 0.35);
+  }
+
+  #terminal::-webkit-scrollbar { width: 10px; }
+  #terminal::-webkit-scrollbar-track { background: transparent; }
+  #terminal::-webkit-scrollbar-thumb {
+    background: var(--fg-dimmer);
+    border-radius: 0;
+  }
+  #terminal::-webkit-scrollbar-thumb:hover { background: var(--fg-dim); }
+
+  /* Output lines */
+  .line {
+    white-space: pre-wrap;
+    word-break: break-word;
+    min-height: 1.25em;
+  }
+
+  .line pre {
+    font-family: inherit;
+    font-size: inherit;
+    line-height: 1.1;
+    white-space: pre;
+    overflow-x: auto;
+  }
+
+  /* Text tones */
+  .dim { color: var(--fg-dim); text-shadow: 0 0 1px rgba(168, 111, 0, 0.5); }
+  body.theme-green .dim { text-shadow: 0 0 1px rgba(26, 153, 51, 0.5); }
+  body.theme-white .dim { text-shadow: 0 0 1px rgba(136, 136, 136, 0.5); }
+
+  .bright { color: var(--fg-bright); }
+  .err { color: var(--fg-err); text-shadow: 0 0 2px rgba(255, 106, 61, 0.6); }
+  .ok { color: var(--fg-bright); }
+
+  /* Prompt line */
+  #prompt-line {
+    display: flex;
+    align-items: baseline;
+    flex-wrap: wrap;
+  }
+  #prompt-line.hidden { visibility: hidden; }
+  .prompt-symbol { color: var(--fg); margin-right: 0.5ch; }
+  .prompt-symbol::before { content: '$'; }
+
+  /* Custom block cursor (mirror input) */
+  #typed-pre, #typed-post { white-space: pre; }
+  #cursor-char {
+    display: inline-block;
+    min-width: 0.6em;
+    text-align: center;
+    background: var(--fg);
+    color: var(--bg-darker);
+    text-shadow: none;
+    animation: blink 1.05s steps(2, end) infinite;
+  }
+  body.no-blink #cursor-char { animation: none; background: var(--fg); }
+  @keyframes blink {
+    0%, 49% { background: var(--fg); color: var(--bg-darker); }
+    50%, 100% { background: transparent; color: var(--fg); text-shadow: inherit; }
+  }
+
+  /* Hidden real input captures keystrokes */
+  #input {
+    position: fixed;
+    top: -100px;
+    left: 0;
+    width: 1px;
+    height: 1px;
+    opacity: 0;
+    border: 0;
+    outline: none;
+  }
+
+  /* Typing (intro sim) span */
+  .typing { color: var(--fg); }
+
+  /* Banner box border styling */
+  .banner {
+    color: var(--fg);
+    font-family: inherit;
+    font-size: 0.95em;
+    line-height: 1.0;
+  }
+
+  /* Don't allow selection on anything during boot */
+  .booting { cursor: default; }
+
+  /* Link styling in output */
+  a {
+    color: var(--fg-bright);
+    text-decoration: underline;
+    text-decoration-style: dotted;
+  }
+  a:hover { color: var(--fg); background: var(--fg-dimmer); }
+
+  /* Section header inside output */
+  .hdr {
+    color: var(--fg-bright);
+    display: inline;
+  }
+
+  /* Soft gap for spacing */
+  .gap { height: 0.5em; }
+
+  /* Mobile */
+  @media (max-width: 600px) {
+    html, body { font-size: 17px; }
+    .crt { padding: 1vmin 2vmin; }
+  }
+</style>
+</head>
+<body class="booting">
+
+<div class="crt">
+  <div class="crt-flicker"></div>
+
+  <div id="terminal">
+    <div id="output"></div>
+    <div id="prompt-line" class="hidden">
+      <span class="prompt-symbol"></span>
+      <span id="typed-pre"></span><span id="cursor-char">&nbsp;</span><span id="typed-post"></span>
+    </div>
+  </div>
+</div>
+
+<input id="input" type="text" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" />
+
+<script>
+/* ══════════════════════════════════════════════════════════════
+   VT220 PORTFOLIO TERMINAL
+   ══════════════════════════════════════════════════════════════ */
+
+const term = document.getElementById('terminal');
+const output = document.getElementById('output');
+const promptLine = document.getElementById('prompt-line');
+const input = document.getElementById('input');
+const typedPre = document.getElementById('typed-pre');
+const cursorChar = document.getElementById('cursor-char');
+const typedPost = document.getElementById('typed-post');
+
+let waiting = false;
+const history = [];
+let historyIdx = -1;
+let currentInput = '';
+
+/* ── Helpers ── */
+const sleep = (ms) => new Promise(r => setTimeout(r, ms));
+
+function scrollBottom() {
+  term.scrollTop = term.scrollHeight;
+}
+
+function appendLine(html = '', cls = '') {
+  const el = document.createElement('div');
+  el.className = 'line' + (cls ? ' ' + cls : '');
+  el.innerHTML = html || '&nbsp;';
+  output.appendChild(el);
+  scrollBottom();
+  return el;
+}
+
+function appendLines(arr) {
+  arr.forEach(l => appendLine(l || ''));
+}
+
+function escapeHtml(s) {
+  return String(s).replace(/[&<>"']/g, c =>
+    ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#039;'}[c]));
+}
+
+/* ── Typing simulation for boot ── */
+async function typeInto(el, text, speed = 60, jitter = 40) {
+  for (const ch of text) {
+    el.textContent += ch;
+    scrollBottom();
+    await sleep(speed + Math.random() * jitter);
+  }
+}
+
+/* ══════════════════════════════════════════════════════════════
+   BOOT & LOGIN SEQUENCE
+   ══════════════════════════════════════════════════════════════ */
+async function boot() {
+  // POST-style boot messages
+  appendLine('<span class="dim">VT220 Portfolio Terminal v4.7.0</span>');
+  appendLine('<span class="dim">Copyright (c) 1983-2026 Digital Equipment Corporation</span>');
+  await sleep(250);
+  appendLine('<span class="dim">Memory Test: 640K OK</span>');
+  await sleep(180);
+  appendLine('<span class="dim">Detecting storage... <span class="bright">OK</span></span>');
+  await sleep(180);
+  appendLine('<span class="dim">Loading kernel... <span class="bright">OK</span></span>');
+  await sleep(220);
+  appendLine('<span class="dim">Starting getty on tty01...</span>');
+  await sleep(450);
+  appendLine('');
+
+  // First (failed) login attempt
+  const l1 = appendLine('vt220 login: <span id="l1"></span>');
+  await sleep(300);
+  await typeInto(document.getElementById('l1'), 'abhinav', 70, 45);
+  await sleep(300);
+  const p1 = appendLine('Password: <span id="p1"></span>');
+  await sleep(250);
+  await typeInto(document.getElementById('p1'), '••••••', 90, 40);
+  await sleep(500);
+  appendLine('<span class="err">Login incorrect</span>');
+  await sleep(700);
+  appendLine('');
+
+  // Second (successful) login
+  const l2 = appendLine('vt220 login: <span id="l2"></span>');
+  await sleep(250);
+  await typeInto(document.getElementById('l2'), 'abhinav', 65, 35);
+  await sleep(250);
+  const p2 = appendLine('Password: <span id="p2"></span>');
+  await sleep(200);
+  await typeInto(document.getElementById('p2'), '••••••••', 80, 30);
+  await sleep(600);
+
+  // MOTD
+  appendLine('Last login: Tue Apr 21 18:02:06 PDT 2026 on tty01');
+  appendLine('You have 1 failed login attempt since the last successful login.');
+  await sleep(400);
+  appendLine('');
+
+  // Welcome banner
+  const banner =
+`<span class="bright">+----------------------------------------------------------+
+|                                                          |
+|   ABHINAV PARAMESHWARAN · AI ENGINEER                    |
+|   Los Angeles, CA · Keck School of Medicine, USC         |
+|                                                          |
+|   3+ yrs · LLMs · RAG · LangGraph · Pinecone · AWS       |
+|                                                          |
+|   Type <span style="color: var(--fg)">help</span> to get started.                              |
+|                                                          |
++----------------------------------------------------------+</span>`;
+  appendLine(`<pre class="banner">${banner}</pre>`);
+  appendLine('');
+
+  // Hand off to user
+  document.body.classList.remove('booting');
+  waiting = true;
+  promptLine.classList.remove('hidden');
+  scrollBottom();
+  focusInput();
+}
+
+/* ══════════════════════════════════════════════════════════════
+   COMMAND HANDLERS
+   ══════════════════════════════════════════════════════════════ */
+const COMMANDS = {
+  help: {
+    desc: 'Show this help menu',
+    run: () => [
+      '<span class="bright">Available commands:</span>',
+      '',
+      '  <span class="bright">about</span>        About Abhinav',
+      '  <span class="bright">whoami</span>       Current user',
+      '  <span class="bright">skills</span>       Technical skills',
+      '  <span class="bright">experience</span>   Work history',
+      '  <span class="bright">projects</span>     List featured projects',
+      '  <span class="bright">projects</span> &lt;name&gt; Detailed project view',
+      '  <span class="bright">education</span>    Academic history',
+      '  <span class="bright">contact</span>      How to reach me',
+      '  <span class="bright">resume</span>       Print full resume',
+      '',
+      '  <span class="bright">ls</span>           List files',
+      '  <span class="bright">cat</span> &lt;file&gt;    Print file contents',
+      '  <span class="bright">tree</span>         Directory tree',
+      '  <span class="bright">pwd</span>          Current directory',
+      '',
+      '  <span class="bright">open</span> &lt;target&gt; Open github / linkedin / email',
+      '  <span class="bright">github</span>       Open GitHub profile',
+      '  <span class="bright">linkedin</span>     Open LinkedIn profile',
+      '  <span class="bright">email</span>        Compose an email',
+      '',
+      '  <span class="bright">neofetch</span>     System info',
+      '  <span class="bright">date</span>         Current date',
+      '  <span class="bright">uptime</span>       Session uptime',
+      '  <span class="bright">history</span>      Command history',
+      '  <span class="bright">theme</span> &lt;name&gt;  Switch phosphor: amber|green|white',
+      '  <span class="bright">clear</span>        Clear the screen',
+      '  <span class="bright">exit</span>         Shut down',
+      '',
+      '  <span class="dim">Use Tab for autocomplete, Up/Down for history.</span>'
+    ]
+  },
+
+  whoami: {
+    desc: 'Current user',
+    run: () => ['abhinav']
+  },
+
+  about: {
+    desc: 'About Abhinav',
+    run: () => [
+      '<span class="bright">Abhinav Parameshwaran</span>',
+      'AI Engineer · Los Angeles, CA',
+      '',
+      'I build LLM applications, RAG pipelines, and scalable ML systems.',
+      'Currently at the Keck School of Medicine at USC, where I design',
+      'LangGraph orchestration workflows and Pinecone-powered retrieval',
+      'systems that help researchers extract insights from heterogeneous',
+      'biomedical datasets.',
+      '',
+      '<span class="dim">Previously: Accenture (ML inference services on AWS</span>',
+      '<span class="dim">SageMaker/Lambda serving 1M+ daily requests).</span>',
+      '',
+      'M.S. Computer Science, USC (Dec 2024)',
+      'B.E. Computer Engineering, University of Mumbai (May 2022)'
+    ]
+  },
+
+  skills: {
+    desc: 'Technical skills',
+    run: () => [
+      '<span class="bright">// AI Engineering</span>',
+      '  LLMs · RAG · LangGraph · LangChain · MCP · Pinecone · Embeddings',
+      '  Semantic Search · Prompt Engineering · Model Evaluation',
+      '',
+      '<span class="bright">// Machine Learning</span>',
+      '  NLP · Deep Learning · Anomaly Detection · Bayesian Models',
+      '  Gaussian Mixture Models · scRNA-seq · Seurat · Scanpy',
+      '',
+      '<span class="bright">// Cloud &amp; MLOps</span>',
+      '  AWS SageMaker · AWS Lambda · Docker · Kubernetes',
+      '  Terraform · CI/CD · REST APIs',
+      '',
+      '<span class="bright">// Data Engineering</span>',
+      '  ETL Pipelines · Real-time Streaming · Distributed Systems',
+      '',
+      '<span class="bright">// Languages</span>',
+      '  Python · SQL · R · TypeScript · JavaScript · Go · Java · C · C++'
+    ]
+  },
+
+  experience: {
+    desc: 'Work history',
+    run: () => [
+      '<span class="bright">AI Engineer</span> <span class="dim">@ Keck School of Medicine, USC</span>',
+      '<span class="dim">Nov 2023 — Present · Los Angeles, CA</span>',
+      '  · Built an LLM reasoning system to extract contextual insights',
+      '    from heterogeneous datasets for researcher workflows.',
+      '  · Designed a LangGraph orchestration workflow coordinating',
+      '    retrieval, reasoning, and multi-step task execution.',
+      '  · Optimized a Pinecone-backed RAG pipeline — better semantic',
+      '    search relevance across lab data sources.',
+      '  · Architected a 10TB+ data processing pipeline; <span class="bright">+40%</span> efficiency.',
+      '  · Evaluation &amp; monitoring workflows reduced false positives',
+      '    by <span class="bright">99%</span>.',
+      '  · Anomaly detection model at <span class="bright">92% recall</span>.',
+      '',
+      '<span class="bright">Software Developer</span> <span class="dim">@ Accenture</span>',
+      '<span class="dim">Jan 2021 — Apr 2023 · India</span>',
+      '  · ML inference services on AWS SageMaker/Lambda serving',
+      '    <span class="bright">1M+ daily requests</span> in production.',
+      '  · NLP document processing pipeline — <span class="bright">95% accuracy</span>.',
+      '  · Speech recognition workflow — <span class="bright">88.6% accuracy</span>.',
+      '  · Real-time streaming &amp; ingestion at <span class="bright">99.9% availability</span>;',
+      '    reduced latency by <span class="bright">35%</span>.'
+    ]
+  },
+
+  education: {
+    desc: 'Academic history',
+    run: () => [
+      '<span class="bright">M.S. in Computer Science</span>',
+      '  University of Southern California · <span class="dim">Dec 2024</span>',
+      '',
+      '<span class="bright">B.E. in Computer Engineering</span>',
+      '  University of Mumbai · <span class="dim">May 2022</span>'
+    ]
+  },
+
+  projects: {
+    desc: 'List projects (or `projects <name>` for detail)',
+    run: (args) => {
+      if (!args.length) {
+        return [
+          '<span class="bright">Featured projects:</span>',
+          '  <span class="bright">1. raydiant</span>       AI Teaching Assistant <span class="dim">[MCP, RAG, Pinecone, React]</span>',
+          '  <span class="bright">2. trip-concierge</span> Multi-agent trip organizer <span class="dim">[LangGraph, Pinecone]</span>',
+          '  <span class="bright">3. wafllm</span>         WAF simulator <span class="dim">[Llama 3]</span>',
+          '  <span class="bright">4. copd</span>            Hospital readmission predictor <span class="dim">[ML, Medicare data]</span>',
+          '  <span class="bright">5. v-attendance</span>   Face-recognition attendance <span class="dim">[CV]</span>',
+          '  <span class="bright">6. gaia</span>           gRPC system stats server <span class="dim">[gRPC, Starlark]</span>',
+          '',
+          '<span class="dim">Type `projects &lt;name&gt;` for details. e.g. projects raydiant</span>'
+        ];
+      }
+      const name = args[0].toLowerCase();
+      const projects = {
+        'raydiant': [
+          '<span class="bright">raydiant</span> — AI Teaching Assistant',
+          '<span class="dim">github.com/Beckendrof/raydiant</span>',
+          '',
+          'A multi-agent chatbot powered by a live-updating RAG system,',
+          'trained on course content. Supports natural-language Q&amp;A',
+          'through a React frontend.',
+          '',
+          '<span class="bright">Stack:</span> MCP · Pinecone · OpenAI API · React · Python',
+          '<span class="bright">Key work:</span> tuned chunk size, Top-K retrieval, and temperature',
+          'for optimal RAG response quality.'
+        ],
+        'trip-concierge': [
+          '<span class="bright">trip-concierge</span> — Multi-Agent Trip Organizer',
+          '<span class="dim">github.com/Beckendrof/multi-agent-trip-organizer</span>',
+          '',
+          'A supervised multi-agent system that ingests unstructured',
+          'chat logs and uses RAG-based reasoning to resolve scheduling',
+          'conflicts under venue constraints.',
+          '',
+          '<span class="bright">Stack:</span> Python · LangGraph · Pinecone · REST APIs',
+          '<span class="bright">Pattern:</span> supervisor node routes between specialist agents',
+          '(scheduling, venues, logistics) based on state.'
+        ],
+        'wafllm': [
+          '<span class="bright">wafllm</span> — WAF Simulator',
+          '<span class="dim">github.com/Beckendrof/wafLLM</span>',
+          '',
+          'A Web Application Firewall simulator powered by Llama 3,',
+          'applying LLM reasoning to security decision-making and',
+          'threat classification.',
+          '',
+          '<span class="bright">Stack:</span> Python · Llama 3'
+        ],
+        'copd': [
+          '<span class="bright">copd</span> — Hospital Readmission Predictor',
+          '<span class="dim">github.com/Beckendrof/COPD-hospital-readmissions</span>',
+          '',
+          'Predicts 30-day readmission probability for COPD patients',
+          'using public US Medicare data. End-to-end ML pipeline.',
+          '',
+          '<span class="bright">Stack:</span> Python · Jupyter · ML'
+        ],
+        'v-attendance': [
+          '<span class="bright">v-attendance</span> — Face-Recognition Attendance',
+          '<span class="dim">github.com/Beckendrof/v-attendance</span>',
+          '',
+          'A computer vision attendance system using facial recognition',
+          'to automate classroom / workplace check-in.',
+          '',
+          '<span class="bright">Stack:</span> Python · Face Recognition'
+        ],
+        'gaia': [
+          '<span class="bright">gaia</span> — gRPC System Stats Server',
+          '<span class="dim">github.com/Beckendrof/Gaia</span>',
+          '',
+          'A gRPC server sharing macOS and Nvidia embedded system',
+          'stats with clients in real time.',
+          '',
+          '<span class="bright">Stack:</span> gRPC · Starlark'
+        ]
+      };
+      if (projects[name]) return projects[name];
+      return [`<span class="err">projects: no project named '${escapeHtml(name)}'</span>`,
+              `<span class="dim">Try: raydiant · trip-concierge · wafllm · copd · v-attendance · gaia</span>`];
+    }
+  },
+
+  contact: {
+    desc: 'Contact info',
+    run: () => [
+      '<span class="bright">email</span>     <a href="mailto:parameshwaranabhinav@gmail.com">parameshwaranabhinav@gmail.com</a>',
+      '<span class="bright">github</span>    <a href="https://github.com/Beckendrof" target="_blank">github.com/Beckendrof</a>',
+      '<span class="bright">linkedin</span>  <a href="https://www.linkedin.com/in/abhinav-parameshwaran/" target="_blank">linkedin.com/in/abhinav-parameshwaran</a>',
+      '<span class="bright">phone</span>     +1 (213) 477-9861',
+      '<span class="bright">location</span>  Los Angeles, CA'
+    ]
+  },
+
+  resume: {
+    desc: 'Print full resume',
+    run: () => {
+      const lines = [];
+      lines.push('<span class="bright">═══════════════════════════════════════════════════</span>');
+      lines.push('<span class="bright">  ABHINAV PARAMESHWARAN · AI ENGINEER</span>');
+      lines.push('<span class="bright">═══════════════════════════════════════════════════</span>');
+      lines.push('');
+      return lines.concat(
+        COMMANDS.about.run([]), [''],
+        ['<span class="bright">── EXPERIENCE ──</span>', ''],
+        COMMANDS.experience.run([]), [''],
+        ['<span class="bright">── EDUCATION ──</span>', ''],
+        COMMANDS.education.run([]), [''],
+        ['<span class="bright">── SKILLS ──</span>', ''],
+        COMMANDS.skills.run([]), [''],
+        ['<span class="bright">── PROJECTS ──</span>', ''],
+        COMMANDS.projects.run([]), [''],
+        ['<span class="bright">── CONTACT ──</span>', ''],
+        COMMANDS.contact.run([])
+      );
+    }
+  },
+
+  ls: {
+    desc: 'List files',
+    run: (args) => {
+      if (args[0] === '-la' || args[0] === '-l' || args[0] === '-a') {
+        return [
+          'total 42',
+          '<span class="dim">drwxr-xr-x  2 abhinav staff   256 Apr 22 14:23</span> .',
+          '<span class="dim">drwxr-xr-x  8 abhinav staff   512 Apr 22 10:12</span> ..',
+          '<span class="dim">-rw-r--r--  1 abhinav staff  1204 Apr 22 14:20</span> <span class="bright">about.md</span>',
+          '<span class="dim">-rw-r--r--  1 abhinav staff   892 Apr 18 09:33</span> <span class="bright">contact.md</span>',
+          '<span class="dim">-rw-r--r--  1 abhinav staff   612 Mar 08 16:44</span> <span class="bright">education.md</span>',
+          '<span class="dim">-rw-r--r--  1 abhinav staff  2341 Apr 19 11:02</span> <span class="bright">experience.md</span>',
+          '<span class="dim">drwxr-xr-x  8 abhinav staff   256 Apr 21 22:15</span> <span class="bright">projects/</span>',
+          '<span class="dim">-rw-r--r--  1 abhinav staff  3104 Apr 22 14:23</span> <span class="bright">resume.md</span>',
+          '<span class="dim">-rw-r--r--  1 abhinav staff  1518 Apr 22 14:22</span> <span class="bright">skills.md</span>'
+        ];
+      }
+      return [
+        '<span class="bright">about.md</span>      <span class="bright">education.md</span>  <span class="bright">projects/</span>    <span class="bright">skills.md</span>',
+        '<span class="bright">contact.md</span>    <span class="bright">experience.md</span> <span class="bright">resume.md</span>'
+      ];
+    }
+  },
+
+  cat: {
+    desc: 'Print file contents',
+    run: (args) => {
+      if (!args.length) return ['<span class="err">cat: missing file operand</span>'];
+      const file = args[0].toLowerCase().replace(/\.md$/, '');
+      const map = {
+        'about': COMMANDS.about.run,
+        'skills': COMMANDS.skills.run,
+        'experience': COMMANDS.experience.run,
+        'contact': COMMANDS.contact.run,
+        'education': COMMANDS.education.run,
+        'resume': COMMANDS.resume.run
+      };
+      if (map[file]) return map[file]([]);
+      return [`<span class="err">cat: ${escapeHtml(args[0])}: No such file or directory</span>`];
+    }
+  },
+
+  tree: {
+    desc: 'Directory tree',
+    run: () => [
+      '.',
+      '├── about.md',
+      '├── contact.md',
+      '├── education.md',
+      '├── experience.md',
+      '├── projects/',
+      '│   ├── raydiant/',
+      '│   ├── trip-concierge/',
+      '│   ├── wafllm/',
+      '│   ├── copd/',
+      '│   ├── v-attendance/',
+      '│   └── gaia/',
+      '├── resume.md',
+      '└── skills.md',
+      '',
+      '<span class="dim">2 directories, 8 files</span>'
+    ]
+  },
+
+  pwd: { desc: 'Print working directory', run: () => ['/home/abhinav'] },
+
+  date: {
+    desc: 'Current date',
+    run: () => {
+      const d = new Date();
+      return [d.toString()];
+    }
+  },
+
+  uptime: {
+    desc: 'Session uptime',
+    run: () => {
+      const sec = Math.floor((Date.now() - startTime) / 1000);
+      const m = Math.floor(sec / 60);
+      const s = sec % 60;
+      return [`up ${m} min, ${s} sec · 1 user · load avg: 0.42, 0.38, 0.29`];
+    }
+  },
+
+  history: {
+    desc: 'Command history',
+    run: () => {
+      if (!history.length) return ['<span class="dim">(no history yet)</span>'];
+      return history.slice().reverse().map((h, i) =>
+        `  ${String(i+1).padStart(3)}  ${escapeHtml(h)}`);
+    }
+  },
+
+  echo: {
+    desc: 'Echo text',
+    run: (args, raw) => [escapeHtml(raw.substring(raw.indexOf(' ') + 1).trim() || '')]
+  },
+
+  clear: { desc: 'Clear screen', run: () => { output.innerHTML = ''; return 'SILENT'; } },
+  cls: { desc: 'Clear screen (alias)', run: () => { output.innerHTML = ''; return 'SILENT'; } },
+
+  neofetch: {
+    desc: 'System info',
+    run: () => [
+      '<span class="bright">           ___</span>           <span class="bright">abhinav@vt220</span>',
+      '<span class="bright">         /     \\</span>         <span class="dim">─────────────────────</span>',
+      '<span class="bright">        | O   O |</span>        <span class="bright">OS:</span>      VT220 Portfolio 4.7',
+      '<span class="bright">        |   ^   |</span>        <span class="bright">Host:</span>    DEC Terminal (circa \'83)',
+      '<span class="bright">        |  ---  |</span>        <span class="bright">Kernel:</span>  phosphor-amber 6.0',
+      '<span class="bright">         \\_____/</span>         <span class="bright">Uptime:</span>  see `uptime`',
+      '<span class="bright">        /|     |\\</span>        <span class="bright">Shell:</span>   portfolio-sh v1.2',
+      '<span class="bright">       / |     | \\</span>       <span class="bright">CPU:</span>     Python 3.12 + Claude',
+      '<span class="bright">         |     |</span>         <span class="bright">Memory:</span>  LLMs (large)',
+      '<span class="bright">         |_____|</span>         <span class="bright">Location:</span> Los Angeles, CA',
+      '<span class="bright">         |     |</span>         <span class="bright">Role:</span>    AI Engineer'
+    ]
+  },
+
+  theme: {
+    desc: 'Switch phosphor theme',
+    run: (args) => {
+      const t = (args[0] || '').toLowerCase();
+      if (!t) return [
+        'Current theme: ' + (document.body.className.match(/theme-\w+/)?.[0]?.replace('theme-', '') || 'amber'),
+        'Usage: theme <amber|green|white>'
+      ];
+      if (!['amber','green','white'].includes(t)) {
+        return [`<span class="err">theme: unknown theme '${escapeHtml(t)}'. Use amber, green, or white.</span>`];
+      }
+      document.body.className = document.body.className.replace(/theme-\w+/g,'').trim();
+      if (t !== 'amber') document.body.classList.add('theme-' + t);
+      return [`<span class="bright">Phosphor set to ${t}.</span>`];
+    }
+  },
+
+  github: { desc: 'Open GitHub profile', run: () => {
+    window.open('https://github.com/Beckendrof', '_blank');
+    return ['<span class="dim">Opening github.com/Beckendrof...</span>'];
+  }},
+  linkedin: { desc: 'Open LinkedIn', run: () => {
+    window.open('https://www.linkedin.com/in/abhinav-parameshwaran/', '_blank');
+    return ['<span class="dim">Opening LinkedIn profile...</span>'];
+  }},
+  email: { desc: 'Compose email', run: () => {
+    window.location.href = 'mailto:parameshwaranabhinav@gmail.com';
+    return ['<span class="dim">Composing email to parameshwaranabhinav@gmail.com...</span>'];
+  }},
+
+  open: {
+    desc: 'Open a link target',
+    run: (args) => {
+      const t = (args[0] || '').toLowerCase();
+      if (t === 'github') return COMMANDS.github.run([]);
+      if (t === 'linkedin') return COMMANDS.linkedin.run([]);
+      if (t === 'email' || t === 'mail') return COMMANDS.email.run([]);
+      return [`<span class="err">open: unknown target '${escapeHtml(t)}'. Try github, linkedin, or email.</span>`];
+    }
+  },
+
+  man: {
+    desc: 'Manual pages',
+    run: (args) => {
+      if (!args.length) return ['<span class="err">man: what manual page do you want?</span>'];
+      const cmd = args[0].toLowerCase();
+      if (COMMANDS[cmd]) {
+        return [
+          `<span class="bright">NAME</span>`,
+          `       ${cmd} - ${COMMANDS[cmd].desc}`,
+          '',
+          `<span class="bright">USAGE</span>`,
+          `       ${cmd}`
+        ];
+      }
+      return [`<span class="err">No manual entry for ${escapeHtml(cmd)}</span>`];
+    }
+  },
+
+  exit: {
+    desc: 'Shut down',
+    run: async () => {
+      waiting = false;
+      promptLine.classList.add('hidden');
+      appendLine('<span class="dim">logout</span>');
+      appendLine('<span class="dim">Shutting down the system...</span>');
+      await sleep(800);
+      appendLine('<span class="dim">Unmounting filesystems...</span>');
+      await sleep(500);
+      appendLine('<span class="dim">System halted.</span>');
+      await sleep(600);
+      output.style.transition = 'opacity 0.6s';
+      output.style.opacity = '0.1';
+      await sleep(800);
+      output.innerHTML = '';
+      output.style.opacity = '1';
+      appendLine('');
+      appendLine('<span class="dim">       (Press any key to reboot)</span>');
+      const reboot = () => {
+        document.removeEventListener('keydown', reboot);
+        document.removeEventListener('click', reboot);
+        output.innerHTML = '';
+        document.body.classList.add('booting');
+        boot();
+      };
+      document.addEventListener('keydown', reboot);
+      document.addEventListener('click', reboot);
+      return 'SILENT';
+    }
+  },
+  logout: { desc: 'alias for exit', run: (a) => COMMANDS.exit.run(a) },
+  shutdown: { desc: 'alias for exit', run: (a) => COMMANDS.exit.run(a) },
+
+  /* Easter eggs */
+  sudo: {
+    desc: '(fake)',
+    hidden: true,
+    run: (args) => {
+      if (args[0] === 'rm' && args.includes('-rf')) {
+        return [
+          '<span class="err">[sudo] password for abhinav:</span>',
+          'Nice try.',
+          '<span class="dim">This incident will be reported.</span>'
+        ];
+      }
+      return [
+        '<span class="err">[sudo] password for abhinav:</span>',
+        'Sorry, user abhinav is not in the sudoers file.'
+      ];
+    }
+  },
+  vim: { desc: '(fake)', hidden: true, run: () => [
+    '<span class="err">vim: command not found</span>',
+    '<span class="dim">(portfolio-sh ships with ed(1), the standard editor)</span>'
+  ]},
+  emacs: { desc: '(fake)', hidden: true, run: () => [
+    '<span class="err">emacs: command not found</span>',
+    '<span class="dim">(and even if it were, vim would still be better)</span>'
+  ]},
+  cowsay: {
+    desc: '(fake)',
+    hidden: true,
+    run: (args, raw) => {
+      const msg = raw.substring(raw.indexOf(' ') + 1).trim() || 'Hire Abhinav.';
+      const safe = escapeHtml(msg);
+      const border = '-'.repeat(Math.min(msg.length, 40) + 2);
+      return [
+        ' ' + border,
+        `&lt; ${safe} &gt;`,
+        ' ' + border,
+        '        \\   ^__^',
+        '         \\  (oo)\\_______',
+        '            (__)\\       )\\/\\',
+        '                ||----w |',
+        '                ||     ||'
+      ];
+    }
+  },
+  fortune: {
+    desc: '(fake)',
+    hidden: true,
+    run: () => {
+      const quotes = [
+        '"The best way to predict the future is to invent it." — Alan Kay',
+        '"Talk is cheap. Show me the code." — Linus Torvalds',
+        '"Simplicity is the ultimate sophistication." — Leonardo da Vinci',
+        '"Premature optimization is the root of all evil." — Knuth',
+        '"First, solve the problem. Then, write the code." — John Johnson',
+        '"There are only two hard things: cache invalidation, naming, and off-by-one errors."',
+        '"In theory, theory and practice are the same. In practice, they are not."'
+      ];
+      return [quotes[Math.floor(Math.random() * quotes.length)]];
+    }
+  }
+};
+
+/* ══════════════════════════════════════════════════════════════
+   COMMAND EXECUTION
+   ══════════════════════════════════════════════════════════════ */
+async function runCommand(raw) {
+  const trimmed = raw.trim();
+  if (!trimmed) return;
+
+  const parts = trimmed.split(/\s+/);
+  const cmd = parts[0].toLowerCase();
+  const args = parts.slice(1);
+
+  const entry = COMMANDS[cmd];
+  if (!entry) {
+    appendLine(`<span class="err">portfolio-sh: command not found: ${escapeHtml(cmd)}</span>`);
+    appendLine(`<span class="dim">Try \`help\` for available commands.</span>`);
+    appendLine('');
+    return;
+  }
+
+  try {
+    const result = await entry.run(args, trimmed);
+    if (result === 'SILENT') return;
+    if (Array.isArray(result)) appendLines(result);
+    else if (typeof result === 'string') appendLine(result);
+    appendLine('');
+  } catch (err) {
+    appendLine(`<span class="err">error: ${escapeHtml(err.message)}</span>`);
+  }
+}
+
+function echoPrompt(cmd) {
+  appendLine(`<span class="prompt-symbol"></span> ${escapeHtml(cmd)}`);
+}
+
+/* ══════════════════════════════════════════════════════════════
+   INPUT HANDLING (mirror to visible cursor)
+   ══════════════════════════════════════════════════════════════ */
+function renderMirror() {
+  const val = input.value;
+  const pos = input.selectionStart ?? val.length;
+  const pre = val.slice(0, pos);
+  const atChar = val.slice(pos, pos + 1);
+  const post = val.slice(pos + 1);
+  typedPre.textContent = pre;
+  // Cursor block shows the character at position, or a non-breaking space if at end
+  cursorChar.innerHTML = atChar ? escapeHtml(atChar) : '&nbsp;';
+  typedPost.textContent = post;
+}
+
+function focusInput() {
+  input.focus({ preventScroll: true });
+}
+
+// Sync mirror on every input event
+input.addEventListener('input', renderMirror);
+input.addEventListener('keyup', renderMirror);
+input.addEventListener('click', renderMirror);
+
+input.addEventListener('keydown', async (e) => {
+  if (!waiting) {
+    e.preventDefault();
+    return;
+  }
+
+  if (e.key === 'Enter') {
+    e.preventDefault();
+    const cmd = input.value;
+    input.value = '';
+    renderMirror();
+    if (cmd.trim()) {
+      history.unshift(cmd.trim());
+      historyIdx = -1;
+    }
+    echoPrompt(cmd);
+    await runCommand(cmd);
+    scrollBottom();
+  } else if (e.key === 'ArrowUp') {
+    e.preventDefault();
+    if (history.length && historyIdx < history.length - 1) {
+      historyIdx++;
+      input.value = history[historyIdx];
+      setTimeout(() => { input.selectionStart = input.selectionEnd = input.value.length; renderMirror(); }, 0);
+    }
+  } else if (e.key === 'ArrowDown') {
+    e.preventDefault();
+    if (historyIdx > 0) {
+      historyIdx--;
+      input.value = history[historyIdx];
+    } else {
+      historyIdx = -1;
+      input.value = '';
+    }
+    setTimeout(() => { input.selectionStart = input.selectionEnd = input.value.length; renderMirror(); }, 0);
+  } else if (e.key === 'Tab') {
+    e.preventDefault();
+    tabComplete();
+  } else if (e.key === 'l' && e.ctrlKey) {
+    e.preventDefault();
+    output.innerHTML = '';
+  } else if (e.key === 'c' && e.ctrlKey) {
+    // Ctrl+C: abort line
+    e.preventDefault();
+    echoPrompt(input.value + '^C');
+    input.value = '';
+    renderMirror();
+  }
+});
+
+/* Tab completion */
+function tabComplete() {
+  const val = input.value;
+  const parts = val.split(/\s+/);
+  if (parts.length > 1) {
+    // Argument completion for projects, cat, open, man
+    const cmd = parts[0].toLowerCase();
+    const partial = parts[parts.length - 1].toLowerCase();
+    let candidates = [];
+    if (cmd === 'projects') {
+      candidates = ['raydiant', 'trip-concierge', 'wafllm', 'copd', 'v-attendance', 'gaia'];
+    } else if (cmd === 'cat') {
+      candidates = ['about.md', 'contact.md', 'education.md', 'experience.md', 'resume.md', 'skills.md'];
+    } else if (cmd === 'open') {
+      candidates = ['github', 'linkedin', 'email'];
+    } else if (cmd === 'theme') {
+      candidates = ['amber', 'green', 'white'];
+    } else if (cmd === 'man') {
+      candidates = Object.keys(COMMANDS).filter(c => !COMMANDS[c].hidden);
+    }
+    const matches = candidates.filter(c => c.startsWith(partial));
+    if (matches.length === 1) {
+      parts[parts.length - 1] = matches[0];
+      input.value = parts.join(' ');
+      setTimeout(() => { input.selectionStart = input.selectionEnd = input.value.length; renderMirror(); }, 0);
+    } else if (matches.length > 1) {
+      appendLine('<span class="dim">' + matches.join('  ') + '</span>');
+      scrollBottom();
+    }
+    return;
+  }
+
+  // Command completion
+  const partial = (parts[0] || '').toLowerCase();
+  if (!partial) return;
+  const all = Object.keys(COMMANDS).filter(c => !COMMANDS[c].hidden);
+  const matches = all.filter(c => c.startsWith(partial));
+  if (matches.length === 1) {
+    input.value = matches[0] + ' ';
+    setTimeout(() => { input.selectionStart = input.selectionEnd = input.value.length; renderMirror(); }, 0);
+  } else if (matches.length > 1) {
+    appendLine('<span class="dim">' + matches.join('  ') + '</span>');
+    scrollBottom();
+  }
+}
+
+/* Focus input whenever user clicks anywhere */
+document.addEventListener('click', (e) => {
+  // Don't steal focus if user is selecting text or clicking a real link
+  if (window.getSelection().toString()) return;
+  if (e.target.tagName === 'A') return;
+  focusInput();
+});
+
+document.addEventListener('keydown', (e) => {
+  // If focus lost, restore it on any key
+  if (document.activeElement !== input) focusInput();
+});
+
+/* ══════════════════════════════════════════════════════════════
+   GO
+   ══════════════════════════════════════════════════════════════ */
+const startTime = Date.now();
+renderMirror();
+boot();
+</script>
+</body>
+</html>

@@ -1,0 +1,1516 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>vt220 — terminal portfolio</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=VT323&display=swap" rel="stylesheet">
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  :root {
+    /* Amber phosphor (default) */
+    --fg: #ffb000;
+    --fg-bright: #ffd166;
+    --fg-dim: #a86f00;
+    --fg-dimmer: #6b4500;
+    --fg-err: #ff6a3d;
+    --bg: #150900;
+    --bg-darker: #0a0400;
+  }
+
+  html, body {
+    height: 100%;
+    width: 100%;
+    overflow: hidden;
+    background: var(--bg-darker);
+    color: var(--fg);
+    font-family: 'VT323', 'IBM Plex Mono', 'Courier New', monospace;
+    /* Scale font so an 80-col line fills the screen width.
+       We pick the smaller of the width- and height-derived sizes so
+       content never overflows on any aspect ratio. */
+    font-size: clamp(16px, min(2.3vw, 3.0vh), 50px);
+    line-height: 1.18;
+  }
+
+  /* ═══════ CRT FRAME ═══════ */
+  .crt {
+    position: fixed;
+    inset: 0;
+    background:
+      radial-gradient(ellipse at center, var(--bg) 0%, var(--bg-darker) 100%);
+    overflow: hidden;
+    padding: 0.5vmin 0.8vmin;
+  }
+
+  /* Scanlines overlay */
+  .crt::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background: repeating-linear-gradient(
+      to bottom,
+      transparent 0,
+      transparent 2px,
+      rgba(0, 0, 0, 0.22) 3px,
+      rgba(0, 0, 0, 0.22) 4px
+    );
+    pointer-events: none;
+    z-index: 10;
+    mix-blend-mode: multiply;
+  }
+
+  /* Vignette + subtle CRT curvature illusion */
+  .crt::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background:
+      radial-gradient(ellipse at center,
+        transparent 40%,
+        rgba(0, 0, 0, 0.35) 85%,
+        rgba(0, 0, 0, 0.7) 100%);
+    pointer-events: none;
+    z-index: 11;
+    box-shadow: inset 0 0 180px rgba(0, 0, 0, 0.6);
+  }
+
+  /* Full-screen flicker */
+  .crt-flicker {
+    position: absolute;
+    inset: 0;
+    background: var(--fg);
+    opacity: 0;
+    mix-blend-mode: screen;
+    pointer-events: none;
+    z-index: 9;
+    animation: flicker 8s infinite;
+  }
+  @keyframes flicker {
+    0%, 100% { opacity: 0; }
+    7.5% { opacity: 0.018; }
+    15% { opacity: 0; }
+    22% { opacity: 0.012; }
+    30% { opacity: 0; }
+    58% { opacity: 0.02; }
+    66% { opacity: 0; }
+  }
+
+  /* Very subtle horizontal scroll (roll) every so often */
+  @keyframes roll {
+    0%, 97%, 100% { transform: translateY(0); }
+    98% { transform: translateY(-2px); }
+    99% { transform: translateY(2px); }
+  }
+
+  /* ═══════ TERMINAL ═══════ */
+  #terminal {
+    position: relative;
+    width: 100%;
+    height: 100%;
+    overflow-y: auto;
+    overflow-x: hidden;
+    padding: 0.3vmin 0.8vmin;
+    display: flex;
+    flex-direction: column;
+    justify-content: flex-start;
+    color: var(--fg);
+    text-shadow:
+      0 0 2px rgba(255, 176, 0, 0.7),
+      0 0 6px rgba(255, 120, 0, 0.35);
+    animation: roll 40s infinite;
+    z-index: 2;
+    user-select: text;
+    -webkit-user-select: text;
+  }
+
+  #terminal::-webkit-scrollbar { width: 10px; }
+  #terminal::-webkit-scrollbar-track { background: transparent; }
+  #terminal::-webkit-scrollbar-thumb {
+    background: var(--fg-dimmer);
+    border-radius: 0;
+  }
+  #terminal::-webkit-scrollbar-thumb:hover { background: var(--fg-dim); }
+
+  #output {
+    flex-shrink: 0;
+    min-height: 0;
+  }
+
+  /* Output lines */
+  .line {
+    white-space: pre-wrap;
+    word-break: break-word;
+    min-height: 1.25em;
+  }
+
+  .line pre {
+    font-family: inherit;
+    font-size: inherit;
+    line-height: 1.0;
+    white-space: pre;
+    overflow-x: auto;
+  }
+
+  /* Text tones */
+  .dim { color: var(--fg-dim); text-shadow: 0 0 1px rgba(168, 111, 0, 0.5); }
+
+  .bright { color: var(--fg-bright); }
+  .err { color: var(--fg-err); text-shadow: 0 0 2px rgba(255, 106, 61, 0.6); }
+  .ok { color: var(--fg-bright); }
+
+  /* Prompt line */
+  #prompt-line {
+    display: flex;
+    align-items: baseline;
+    flex-wrap: wrap;
+  }
+  #prompt-line.hidden { visibility: hidden; }
+  .prompt-symbol { display: none; }
+
+  /* Custom block cursor (mirror input) */
+  #typed-pre, #typed-post { white-space: pre; }
+  #cursor-char {
+    display: inline-block;
+    min-width: 0.6em;
+    text-align: center;
+    background: var(--fg);
+    color: var(--bg-darker);
+    text-shadow: none;
+    animation: blink 1.05s steps(2, end) infinite;
+  }
+  body.no-blink #cursor-char { animation: none; background: var(--fg); }
+  @keyframes blink {
+    0%, 49% { background: var(--fg); color: var(--bg-darker); }
+    50%, 100% { background: transparent; color: var(--fg); text-shadow: inherit; }
+  }
+
+  /* Hidden real input captures keystrokes */
+  #input {
+    position: fixed;
+    top: -100px;
+    left: 0;
+    width: 1px;
+    height: 1px;
+    opacity: 0;
+    border: 0;
+    outline: none;
+  }
+
+  /* Typing (intro sim) span */
+  .typing { color: var(--fg); }
+
+  /* Banner box border styling */
+  .banner {
+    color: var(--fg);
+    font-family: inherit;
+    font-size: 0.95em;
+    line-height: 1.0;
+  }
+
+  /* Don't allow selection on anything during boot */
+  .booting { cursor: default; }
+
+  /* Link styling in output */
+  a {
+    color: var(--fg-bright);
+    text-decoration: underline;
+    text-decoration-style: dotted;
+  }
+  a:hover { color: var(--fg); background: var(--fg-dimmer); }
+
+  /* Section header inside output */
+  .hdr {
+    color: var(--fg-bright);
+    display: inline;
+  }
+
+  /* Soft gap for spacing */
+  .gap { height: 0.5em; }
+
+  /* ═══════ CRT POWER-ON ANIMATION ═══════ */
+  /* Classic CRT turn-on: tiny dot → horizontal line → expands vertically
+     → white flash → fades to reveal the terminal. */
+  #crt-poweron {
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    z-index: 20;
+    overflow: hidden;
+  }
+  #crt-poweron::before {
+    content: '';
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    width: 100%;
+    height: 100%;
+    background: #fff8e6;
+    box-shadow:
+      0 0 80px 10px #fff8e6,
+      0 0 160px 20px var(--fg-bright);
+    transform: translate(-50%, -50%) scale(0, 0);
+    opacity: 0;
+  }
+  body.power-on #crt-poweron::before {
+    animation: crtTurnOn 1.4s cubic-bezier(0.2, 0.7, 0.2, 1) forwards;
+  }
+  @keyframes crtTurnOn {
+    0%   { transform: translate(-50%, -50%) scaleX(0.002) scaleY(0.002); opacity: 0; }
+    6%   { transform: translate(-50%, -50%) scaleX(0.004) scaleY(0.004); opacity: 1; }
+    22%  { transform: translate(-50%, -50%) scaleX(1)     scaleY(0.003); opacity: 1; }
+    35%  { transform: translate(-50%, -50%) scaleX(1)     scaleY(0.006); opacity: 1; }
+    65%  { transform: translate(-50%, -50%) scaleX(1)     scaleY(1);     opacity: 0.85; }
+    80%  { transform: translate(-50%, -50%) scaleX(1)     scaleY(1);     opacity: 0.30; }
+    100% { transform: translate(-50%, -50%) scaleX(1)     scaleY(1);     opacity: 0; }
+  }
+  body.power-on #terminal,
+  body.power-on .crt-flicker { opacity: 0; }
+  body.power-on #terminal { transition: opacity 0.3s ease-in; }
+  body.power-on.power-on-done #terminal,
+  body.power-on.power-on-done .crt-flicker { opacity: 1; }
+
+  /* ═══════ POWERED-OFF (CRT dead-black) ═══════ */
+  /* Reached via the `exit` command. Screen goes pitch black, phosphor glow,
+     scanlines, vignette and flicker all gone. Any keypress or click re-runs
+     the boot sequence (which replays the power-on animation). */
+  html.powered-off, body.powered-off {
+    background: #000 !important;
+  }
+  body.powered-off .crt {
+    background: #000 !important;
+    transition: background 0.5s ease-out;
+  }
+  body.powered-off .crt::before,
+  body.powered-off .crt::after,
+  body.powered-off .crt-flicker,
+  body.powered-off #terminal,
+  body.powered-off #prompt-line,
+  body.powered-off #settings-panel {
+    display: none !important;
+  }
+
+  /* ═══════ EFFECT TOGGLES (driven by settings panel) ═══════ */
+  body.no-scanlines .crt::before { display: none; }
+  body.no-vignette  .crt::after  { display: none; }
+  body.no-flicker   .crt-flicker { display: none; }
+  body.no-glow      #terminal    { text-shadow: none !important; }
+  body.no-glow      .dim, body.no-glow .err { text-shadow: none !important; }
+
+  /* Dark-Text-on-Light-Screen inverse phosphor mode */
+  body.invert-screen {
+    --fg: #1a0e00;
+    --fg-bright: #000000;
+    --fg-dim: #4a3000;
+    --fg-dimmer: #826000;
+    --bg: #ffb000;
+    --bg-darker: #ffcc55;
+  }
+  body.invert-screen #terminal,
+  body.invert-screen .dim,
+  body.invert-screen .err { text-shadow: none; }
+  body.invert-screen .crt::before {
+    background: repeating-linear-gradient(
+      to bottom,
+      transparent 0,
+      transparent 2px,
+      rgba(0, 0, 0, 0.12) 3px,
+      rgba(0, 0, 0, 0.12) 4px
+    );
+  }
+
+  /* Underline cursor style (instead of block) */
+  body.cursor-underline #cursor-char {
+    background: transparent !important;
+    color: var(--fg) !important;
+    text-shadow: inherit;
+    border-bottom: 2px solid var(--fg);
+    line-height: 1;
+  }
+  body.cursor-underline.no-blink #cursor-char { border-bottom-color: var(--fg); }
+  body.cursor-underline #cursor-char { animation: underlineBlink 1.05s steps(2, end) infinite; }
+  body.cursor-underline.no-blink #cursor-char { animation: none; }
+  @keyframes underlineBlink {
+    0%, 49% { border-bottom-color: var(--fg); }
+    50%, 100% { border-bottom-color: transparent; }
+  }
+
+  /* Cursor hidden */
+  body.cursor-hidden #cursor-char {
+    background: transparent !important;
+    color: transparent !important;
+    border-bottom-color: transparent !important;
+    animation: none !important;
+  }
+
+  /* ═══════ VT320 SET-UP SCREEN ═══════ */
+  #settings-panel {
+    position: fixed;
+    inset: 0;
+    display: none;
+    z-index: 50;
+    background:
+      radial-gradient(ellipse at center, var(--bg) 0%, var(--bg-darker) 100%);
+    color: var(--fg);
+    font-family: inherit;
+    font-size: inherit;
+    padding: 0.5vmin 2vmin;
+    flex-direction: column;
+    justify-content: flex-end;
+    user-select: none;
+    text-shadow:
+      0 0 2px rgba(255, 176, 0, 0.7),
+      0 0 6px rgba(255, 120, 0, 0.35);
+  }
+  body.invert-screen #settings-panel { text-shadow: none; }
+  #settings-panel.open { display: flex; }
+
+  .setup-content {
+    padding-bottom: 6vh;
+    line-height: 1.3;
+  }
+
+  .setup-titlebar {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    padding-bottom: 0.1em;
+    margin-bottom: 0.2em;
+  }
+
+  .setup-row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.8ch;
+    padding: 0.18em 0;
+    justify-content: space-between;
+  }
+
+  .setup-btn {
+    display: inline-block;
+    flex: 1 1 auto;
+    background: var(--fg);
+    color: var(--bg);
+    padding: 0 1ch;
+    text-align: center;
+    text-shadow: none;
+    white-space: nowrap;
+  }
+
+  .setup-btn.focused {
+    box-shadow:
+      0 0 0 2px var(--bg),
+      0 0 0 4px var(--fg);
+    position: relative;
+    z-index: 1;
+  }
+
+  .setup-footer {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    padding-top: 1.2em;
+  }
+  .setup-footer .printer { margin-left: auto; margin-right: 18%; }
+
+  .setup-hint {
+    text-align: center;
+    padding-top: 0.5em;
+    opacity: 0.7;
+    font-size: 0.8em;
+  }
+
+  /* Mobile */
+  @media (max-width: 600px) {
+    html, body { font-size: 17px; }
+    .crt { padding: 1vmin 2vmin; }
+  }
+</style>
+</head>
+<body class="booting">
+
+<!-- RESUME_DATA_INJECT -->
+<script id="resume-data" type="application/json">
+{}
+</script>
+<!-- /RESUME_DATA_INJECT -->
+
+<div class="crt">
+  <div class="crt-flicker"></div>
+  <div id="crt-poweron"></div>
+
+  <div id="terminal">
+    <div id="output"></div>
+    <div id="prompt-line" class="hidden">
+      <span class="prompt-symbol"></span>
+      <span id="typed-pre"></span><span id="cursor-char">&nbsp;</span><span id="typed-post"></span>
+    </div>
+  </div>
+</div>
+
+<div id="settings-panel">
+  <div class="setup-content">
+    <div class="setup-titlebar">
+      <span id="setup-title">Display Set-Up</span>
+      <span>VT220 AV1.1</span>
+    </div>
+
+    <div class="setup-row" id="setup-row-1">
+      <span class="setup-btn" data-action="next">To Next Set-Up</span>
+      <span class="setup-btn" data-action="close">To Directory</span>
+      <span class="setup-btn" data-toggle="columns"     data-on="80 Columns"             data-off="132 Columns">80 Columns</span>
+      <span class="setup-btn" data-toggle="interpret"   data-on="Interpret Controls"     data-off="Display Controls">Interpret Controls</span>
+    </div>
+
+    <div class="setup-row" id="setup-row-2">
+      <span class="setup-btn" data-toggle="autowrap"    data-on="No Auto Wrap"           data-off="Auto Wrap">No Auto Wrap</span>
+      <span class="setup-btn" data-toggle="smoothscroll" data-on="Smooth Scroll"         data-off="Jump Scroll">Smooth Scroll</span>
+      <span class="setup-btn" data-toggle="invert"      data-on="Light Text, Dark Screen" data-off="Dark Text, Light Screen">Light Text, Dark Screen</span>
+    </div>
+
+    <div class="setup-row" id="setup-row-3">
+      <span class="setup-btn" data-toggle="cursor"      data-on="Cursor"                 data-off="No Cursor">Cursor</span>
+      <span class="setup-btn" data-toggle="cursorstyle" data-on="Block Cursor Style"     data-off="Underline Cursor Style">Block Cursor Style</span>
+      <span class="setup-btn" data-toggle="status"      data-on="No Status Display"      data-off="Indicator Status Display">No Status Display</span>
+    </div>
+
+    <div class="setup-footer">
+      <span>(01,001)</span>
+      <span class="printer">Printer: None</span>
+    </div>
+
+    <div class="setup-hint">← → ↑ ↓ navigate · ENTER select · ESC exit</div>
+  </div>
+</div>
+
+<input id="input" type="text" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" />
+
+<script>
+/* ══════════════════════════════════════════════════════════════
+   VT220 PORTFOLIO TERMINAL
+   ══════════════════════════════════════════════════════════════ */
+
+const RESUME = JSON.parse(document.getElementById('resume-data').textContent);
+
+const term = document.getElementById('terminal');
+const output = document.getElementById('output');
+const promptLine = document.getElementById('prompt-line');
+const input = document.getElementById('input');
+const typedPre = document.getElementById('typed-pre');
+const cursorChar = document.getElementById('cursor-char');
+const typedPost = document.getElementById('typed-post');
+
+// Update page title dynamically
+document.title = `vt220 — ${(RESUME.name || 'user').split(' ')[0].toLowerCase()}@portfolio`;
+
+let waiting = false;
+const history = [];
+let historyIdx = -1;
+let currentInput = '';
+
+/* ── Helpers ── */
+const sleep = (ms) => new Promise(r => setTimeout(r, ms));
+
+function scrollBottom() {
+  term.scrollTop = term.scrollHeight;
+}
+
+function appendLine(html = '', cls = '') {
+  const el = document.createElement('div');
+  el.className = 'line' + (cls ? ' ' + cls : '');
+  el.innerHTML = html || '&nbsp;';
+  output.appendChild(el);
+  scrollBottom();
+  return el;
+}
+
+function appendLines(arr) {
+  arr.forEach(l => appendLine(l || ''));
+}
+
+function escapeHtml(s) {
+  return String(s).replace(/[&<>"']/g, c =>
+    ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#039;'}[c]));
+}
+
+/* ── Typing simulation for boot ── */
+async function typeInto(el, text, speed = 60, jitter = 40) {
+  for (const ch of text) {
+    el.textContent += ch;
+    scrollBottom();
+    await sleep(speed + Math.random() * jitter);
+  }
+}
+
+/* ══════════════════════════════════════════════════════════════
+   BOOT & LOGIN SEQUENCE
+   ══════════════════════════════════════════════════════════════ */
+/* ── Power-off: cut the CRT to pitch black and wait for a key/click ── */
+function powerOff() {
+  waiting = false;
+  promptLine.classList.add('hidden');
+  output.innerHTML = '';
+  output.style.opacity = '1';
+  output.style.transition = '';
+  document.body.classList.add('powered-off');
+
+  const wake = (e) => {
+    // Ignore modifier-only key presses so a stray Shift doesn't boot.
+    if (e && e.type === 'keydown' &&
+        ['Shift','Control','Alt','Meta','CapsLock'].includes(e.key)) return;
+    document.removeEventListener('keydown', wake, true);
+    document.removeEventListener('mousedown', wake, true);
+    document.removeEventListener('touchstart', wake, true);
+    document.body.classList.remove('powered-off');
+    document.body.classList.add('booting');
+    boot();
+  };
+  // Use capture so we beat the other global handlers.
+  document.addEventListener('keydown', wake, true);
+  document.addEventListener('mousedown', wake, true);
+  document.addEventListener('touchstart', wake, true);
+}
+
+async function boot() {
+  const userName = (RESUME.name || 'user').split(' ')[0].toLowerCase();
+
+  // CRT power-on: dot → horizontal line → expands to full screen → flash → fade.
+  // The existing POST text sequence begins only after the tube "warms up".
+  document.body.classList.add('power-on');
+  document.body.classList.remove('power-on-done');
+  // Reflow so the animation replays on reboot.
+  void document.getElementById('crt-poweron').offsetWidth;
+  await sleep(1400);
+  document.body.classList.add('power-on-done');
+  await sleep(200);
+  document.body.classList.remove('power-on', 'power-on-done');
+
+  // POST-style boot messages
+  appendLine('<span class="dim">VT220 Portfolio Terminal v4.7.0</span>');
+  appendLine('<span class="dim">Copyright (c) 1983-2026 Digital Equipment Corporation</span>');
+  await sleep(250);
+  appendLine('<span class="dim">Memory Test: 640K OK</span>');
+  await sleep(180);
+  appendLine('<span class="dim">Detecting storage... <span class="bright">OK</span></span>');
+  await sleep(180);
+  appendLine('<span class="dim">Loading kernel... <span class="bright">OK</span></span>');
+  await sleep(220);
+  appendLine('<span class="dim">Starting getty on tty01...</span>');
+  await sleep(450);
+  appendLine('');
+
+  // First (failed) login attempt
+  const l1 = appendLine('vt220 login: <span id="l1"></span>');
+  await sleep(300);
+  await typeInto(document.getElementById('l1'), userName, 70, 45);
+  await sleep(300);
+  const p1 = appendLine('Password: <span id="p1"></span>');
+  await sleep(250);
+  await typeInto(document.getElementById('p1'), '••••••', 90, 40);
+  await sleep(500);
+  appendLine('<span class="err">Login incorrect</span>');
+  await sleep(700);
+  appendLine('');
+
+  // Second (successful) login
+  const l2 = appendLine('vt220 login: <span id="l2"></span>');
+  await sleep(250);
+  await typeInto(document.getElementById('l2'), userName, 65, 35);
+  await sleep(250);
+  const p2 = appendLine('Password: <span id="p2"></span>');
+  await sleep(200);
+  await typeInto(document.getElementById('p2'), '••••••••', 80, 30);
+  await sleep(600);
+
+  // MOTD
+  appendLine('Last login: Tue Apr 21 18:02:06 PDT 2026 on tty01');
+  appendLine('You have 1 failed login attempt since the last successful login.');
+  await sleep(400);
+  appendLine('');
+
+  // Welcome banner — build dynamically
+  const nameUpper = (RESUME.name || 'USER').toUpperCase();
+  const titleUpper = (RESUME.title || '').toUpperCase();
+  const loc = RESUME.location || '';
+  const company = (RESUME.experience && RESUME.experience.length > 0) ? RESUME.experience[0].company : '';
+  const locLine = [loc, company].filter(Boolean).join(' \u00B7 ');
+
+  // Build skill summary from skills object
+  const allSkills = [];
+  if (RESUME.skills) {
+    for (const cat of Object.values(RESUME.skills)) {
+      if (Array.isArray(cat)) allSkills.push(...cat);
+    }
+  }
+  const skillPreview = allSkills.slice(0, 7).join(' \u00B7 ');
+
+  // Measure actual character width to compute terminal columns
+  function getTermCols() {
+    const ruler = document.createElement('span');
+    ruler.style.cssText = 'visibility:hidden;position:absolute;white-space:pre;font-family:inherit;font-size:inherit;';
+    ruler.textContent = 'M'.repeat(80);
+    document.getElementById('terminal').appendChild(ruler);
+    const charW = ruler.getBoundingClientRect().width / 80;
+    ruler.remove();
+    const termW = document.getElementById('terminal').clientWidth;
+    return Math.max(40, Math.floor(termW / charW) - 2);
+  }
+
+  // Pad lines to fit box
+  function padLine(text, width) {
+    const truncated = text.length > width ? text.substring(0, width) : text;
+    return truncated + ' '.repeat(Math.max(0, width - truncated.length));
+  }
+
+  const w = Math.min(getTermCols() - 4, 120);
+  const bannerLines = [
+    '+' + '-'.repeat(w + 2) + '+',
+    '|' + ' '.repeat(w + 2) + '|',
+    '|   ' + padLine(`${nameUpper} \u00B7 ${titleUpper}`, w - 1) + '|',
+    '|   ' + padLine(locLine, w - 1) + '|',
+    '|' + ' '.repeat(w + 2) + '|',
+    '|   ' + padLine(skillPreview, w - 1) + '|',
+    '|' + ' '.repeat(w + 2) + '|',
+    '|   ' + padLine('Type \x00help\x01 to get started.', w + 1) + '|',
+    '|' + ' '.repeat(w + 2) + '|',
+    '+' + '-'.repeat(w + 2) + '+'
+  ].join('\n');
+
+  // Replace \x00...\x01 with styled span
+  const bannerHtml = escapeHtml(bannerLines).replace(
+    /\x00(.*?)\x01/g,
+    '<span style="color: var(--fg)">$1</span>'
+  );
+
+  appendLine(`<pre class="banner"><span class="bright">${bannerHtml}</span></pre>`);
+  appendLine('');
+
+  // Hand off to user
+  document.body.classList.remove('booting');
+  waiting = true;
+  promptLine.classList.remove('hidden');
+  scrollBottom();
+  focusInput();
+}
+
+/* ══════════════════════════════════════════════════════════════
+   COMMAND HANDLERS
+   ══════════════════════════════════════════════════════════════ */
+const COMMANDS = {
+  help: {
+    desc: 'Show this help menu',
+    run: () => [
+      '<span class="bright">Available commands:</span>',
+      '',
+      '  <span class="bright">about</span>        About me',
+      '  <span class="bright">whoami</span>       Current user',
+      '  <span class="bright">skills</span>       Technical skills',
+      '  <span class="bright">experience</span>   Work history',
+      '  <span class="bright">projects</span>     List featured projects',
+      '  <span class="bright">projects</span> &lt;name&gt; Detailed project view',
+      '  <span class="bright">education</span>    Academic history',
+      '  <span class="bright">contact</span>      How to reach me',
+      '  <span class="bright">resume</span>       Print full resume',
+      '',
+      '  <span class="bright">ls</span>           List files',
+      '  <span class="bright">cat</span> &lt;file&gt;    Print file contents',
+      '  <span class="bright">tree</span>         Directory tree',
+      '  <span class="bright">pwd</span>          Current directory',
+      '',
+      '  <span class="bright">open</span> &lt;target&gt; Open github / linkedin / email',
+      '  <span class="bright">github</span>       Open GitHub profile',
+      '  <span class="bright">linkedin</span>     Open LinkedIn profile',
+      '  <span class="bright">email</span>        Compose an email',
+      '',
+      '  <span class="bright">neofetch</span>     System info',
+      '  <span class="bright">date</span>         Current date',
+      '  <span class="bright">uptime</span>       Session uptime',
+      '  <span class="bright">history</span>      Command history',
+      '  <span class="bright">settings</span>     Open the VT220 Set-Up screen',
+      '  <span class="bright">clear</span>        Clear the screen',
+      '  <span class="bright">exit</span>         Shut down',
+      '',
+      '  <span class="dim">Use Tab for autocomplete, Up/Down for history.</span>'
+    ]
+  },
+
+  whoami: {
+    desc: 'Current user',
+    run: () => [RESUME.name || 'user']
+  },
+
+  about: {
+    desc: 'About me',
+    run: () => {
+      const lines = [];
+      lines.push(`<span class="bright">${escapeHtml(RESUME.name || '')}</span>`);
+      lines.push(`${escapeHtml(RESUME.title || '')} \u00B7 ${escapeHtml(RESUME.location || '')}`);
+      lines.push('');
+      if (RESUME.summary) {
+        // Split summary into ~60-char lines for terminal look
+        const words = RESUME.summary.split(' ');
+        let line = '';
+        for (const word of words) {
+          if (line.length + word.length + 1 > 60 && line) {
+            lines.push(escapeHtml(line));
+            line = word;
+          } else {
+            line = line ? line + ' ' + word : word;
+          }
+        }
+        if (line) lines.push(escapeHtml(line));
+        lines.push('');
+      }
+      // Experience summary
+      if (RESUME.experience && RESUME.experience.length > 0) {
+        const current = RESUME.experience[0];
+        lines.push(`<span class="dim">Currently: ${escapeHtml(current.company)} (${escapeHtml(current.title)})</span>`);
+        if (RESUME.experience.length > 1) {
+          const prev = RESUME.experience[1];
+          lines.push(`<span class="dim">Previously: ${escapeHtml(prev.company)} (${escapeHtml(prev.title)})</span>`);
+        }
+        lines.push('');
+      }
+      // Education
+      if (RESUME.education) {
+        for (const edu of RESUME.education) {
+          lines.push(`${escapeHtml(edu.degree)}`);
+          lines.push(`  ${escapeHtml(edu.school)} \u00B7 <span class="dim">${escapeHtml(edu.date)}</span>`);
+        }
+      }
+      return lines;
+    }
+  },
+
+  skills: {
+    desc: 'Technical skills',
+    run: () => {
+      const lines = [];
+      if (RESUME.skills) {
+        const cats = Object.entries(RESUME.skills);
+        for (let i = 0; i < cats.length; i++) {
+          const [category, skills] = cats[i];
+          lines.push(`<span class="bright">// ${escapeHtml(category)}</span>`);
+          lines.push('  ' + escapeHtml(skills.join(' \u00B7 ')));
+          if (i < cats.length - 1) lines.push('');
+        }
+      }
+      return lines;
+    }
+  },
+
+  experience: {
+    desc: 'Work history',
+    run: () => {
+      const lines = [];
+      if (RESUME.experience) {
+        for (let i = 0; i < RESUME.experience.length; i++) {
+          const exp = RESUME.experience[i];
+          lines.push(`<span class="bright">${escapeHtml(exp.title)}</span> <span class="dim">@ ${escapeHtml(exp.company)}</span>`);
+          lines.push(`<span class="dim">${escapeHtml(exp.start)} — ${escapeHtml(exp.end)} \u00B7 ${escapeHtml(exp.location)}</span>`);
+          if (exp.bullets) {
+            for (const bullet of exp.bullets) {
+              lines.push('  \u00B7 ' + escapeHtml(bullet));
+            }
+          }
+          if (i < RESUME.experience.length - 1) lines.push('');
+        }
+      }
+      return lines;
+    }
+  },
+
+  education: {
+    desc: 'Academic history',
+    run: () => {
+      const lines = [];
+      if (RESUME.education) {
+        for (let i = 0; i < RESUME.education.length; i++) {
+          const edu = RESUME.education[i];
+          lines.push(`<span class="bright">${escapeHtml(edu.degree)}</span>`);
+          lines.push(`  ${escapeHtml(edu.school)} \u00B7 <span class="dim">${escapeHtml(edu.date)}</span>`);
+          if (i < RESUME.education.length - 1) lines.push('');
+        }
+      }
+      return lines;
+    }
+  },
+
+  projects: {
+    desc: 'List projects (or `projects <name>` for detail)',
+    run: (args) => {
+      if (!RESUME.projects || !RESUME.projects.length) {
+        return ['<span class="dim">No projects available.</span>'];
+      }
+      if (!args.length) {
+        const lines = ['<span class="bright">Featured projects:</span>'];
+        for (let i = 0; i < RESUME.projects.length; i++) {
+          const p = RESUME.projects[i];
+          const tech = p.tech ? `<span class="dim">[${escapeHtml(p.tech.join(', '))}]</span>` : '';
+          lines.push(`  <span class="bright">${i + 1}. ${escapeHtml(p.slug)}</span>       ${escapeHtml(p.name)} ${tech}`);
+        }
+        lines.push('');
+        lines.push('<span class="dim">Type `projects &lt;name&gt;` for details.</span>');
+        return lines;
+      }
+      const slug = args[0].toLowerCase();
+      const project = RESUME.projects.find(p => p.slug === slug);
+      if (!project) {
+        const slugs = RESUME.projects.map(p => p.slug).join(' \u00B7 ');
+        return [
+          `<span class="err">projects: no project named '${escapeHtml(slug)}'</span>`,
+          `<span class="dim">Try: ${escapeHtml(slugs)}</span>`
+        ];
+      }
+      const lines = [];
+      lines.push(`<span class="bright">${escapeHtml(project.name)}</span>`);
+      if (project.url) {
+        lines.push(`<span class="dim">${escapeHtml(project.url)}</span>`);
+      }
+      lines.push('');
+      lines.push(escapeHtml(project.description));
+      lines.push('');
+      if (project.tech && project.tech.length) {
+        lines.push(`<span class="bright">Stack:</span> ${escapeHtml(project.tech.join(' \u00B7 '))}`);
+      }
+      return lines;
+    }
+  },
+
+  contact: {
+    desc: 'Contact info',
+    run: () => {
+      const lines = [];
+      if (RESUME.email) lines.push(`<span class="bright">email</span>     <a href="mailto:${escapeHtml(RESUME.email)}">${escapeHtml(RESUME.email)}</a>`);
+      if (RESUME.github) lines.push(`<span class="bright">github</span>    <a href="https://github.com/${escapeHtml(RESUME.github)}" target="_blank">github.com/${escapeHtml(RESUME.github)}</a>`);
+      if (RESUME.linkedin) lines.push(`<span class="bright">linkedin</span>  <a href="https://www.linkedin.com/in/${escapeHtml(RESUME.linkedin)}/" target="_blank">linkedin.com/in/${escapeHtml(RESUME.linkedin)}</a>`);
+      if (RESUME.phone) lines.push(`<span class="bright">phone</span>     ${escapeHtml(RESUME.phone)}`);
+      if (RESUME.location) lines.push(`<span class="bright">location</span>  ${escapeHtml(RESUME.location)}`);
+      return lines;
+    }
+  },
+
+  resume: {
+    desc: 'Print full resume',
+    run: () => {
+      const name = (RESUME.name || 'RESUME').toUpperCase();
+      const title = (RESUME.title || '').toUpperCase();
+      const lines = [];
+      lines.push('<span class="bright">\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550</span>');
+      lines.push(`<span class="bright">  ${escapeHtml(name)} \u00B7 ${escapeHtml(title)}</span>`);
+      lines.push('<span class="bright">\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550</span>');
+      lines.push('');
+      return lines.concat(
+        COMMANDS.about.run([]), [''],
+        ['<span class="bright">\u2500\u2500 EXPERIENCE \u2500\u2500</span>', ''],
+        COMMANDS.experience.run([]), [''],
+        ['<span class="bright">\u2500\u2500 EDUCATION \u2500\u2500</span>', ''],
+        COMMANDS.education.run([]), [''],
+        ['<span class="bright">\u2500\u2500 SKILLS \u2500\u2500</span>', ''],
+        COMMANDS.skills.run([]), [''],
+        ['<span class="bright">\u2500\u2500 PROJECTS \u2500\u2500</span>', ''],
+        COMMANDS.projects.run([]), [''],
+        ['<span class="bright">\u2500\u2500 CONTACT \u2500\u2500</span>', ''],
+        COMMANDS.contact.run([])
+      );
+    }
+  },
+
+  ls: {
+    desc: 'List files',
+    run: (args) => {
+      if (args[0] === '-la' || args[0] === '-l' || args[0] === '-a') {
+        return [
+          'total 42',
+          '<span class="dim">drwxr-xr-x  2 ' + escapeHtml((RESUME.name || 'user').split(' ')[0].toLowerCase()) + ' staff   256 Apr 22 14:23</span> .',
+          '<span class="dim">drwxr-xr-x  8 ' + escapeHtml((RESUME.name || 'user').split(' ')[0].toLowerCase()) + ' staff   512 Apr 22 10:12</span> ..',
+          '<span class="dim">-rw-r--r--  1 ' + escapeHtml((RESUME.name || 'user').split(' ')[0].toLowerCase()) + ' staff  1204 Apr 22 14:20</span> <span class="bright">about.md</span>',
+          '<span class="dim">-rw-r--r--  1 ' + escapeHtml((RESUME.name || 'user').split(' ')[0].toLowerCase()) + ' staff   892 Apr 18 09:33</span> <span class="bright">contact.md</span>',
+          '<span class="dim">-rw-r--r--  1 ' + escapeHtml((RESUME.name || 'user').split(' ')[0].toLowerCase()) + ' staff   612 Mar 08 16:44</span> <span class="bright">education.md</span>',
+          '<span class="dim">-rw-r--r--  1 ' + escapeHtml((RESUME.name || 'user').split(' ')[0].toLowerCase()) + ' staff  2341 Apr 19 11:02</span> <span class="bright">experience.md</span>',
+          '<span class="dim">drwxr-xr-x  8 ' + escapeHtml((RESUME.name || 'user').split(' ')[0].toLowerCase()) + ' staff   256 Apr 21 22:15</span> <span class="bright">projects/</span>',
+          '<span class="dim">-rw-r--r--  1 ' + escapeHtml((RESUME.name || 'user').split(' ')[0].toLowerCase()) + ' staff  3104 Apr 22 14:23</span> <span class="bright">resume.md</span>',
+          '<span class="dim">-rw-r--r--  1 ' + escapeHtml((RESUME.name || 'user').split(' ')[0].toLowerCase()) + ' staff  1518 Apr 22 14:22</span> <span class="bright">skills.md</span>'
+        ];
+      }
+      return [
+        '<span class="bright">about.md</span>      <span class="bright">education.md</span>  <span class="bright">projects/</span>    <span class="bright">skills.md</span>',
+        '<span class="bright">contact.md</span>    <span class="bright">experience.md</span> <span class="bright">resume.md</span>'
+      ];
+    }
+  },
+
+  cat: {
+    desc: 'Print file contents',
+    run: (args) => {
+      if (!args.length) return ['<span class="err">cat: missing file operand</span>'];
+      const file = args[0].toLowerCase().replace(/\.md$/, '');
+      const map = {
+        'about': COMMANDS.about.run,
+        'skills': COMMANDS.skills.run,
+        'experience': COMMANDS.experience.run,
+        'contact': COMMANDS.contact.run,
+        'education': COMMANDS.education.run,
+        'resume': COMMANDS.resume.run
+      };
+      if (map[file]) return map[file]([]);
+      return [`<span class="err">cat: ${escapeHtml(args[0])}: No such file or directory</span>`];
+    }
+  },
+
+  tree: {
+    desc: 'Directory tree',
+    run: () => {
+      const lines = ['.', '\u251C\u2500\u2500 about.md', '\u251C\u2500\u2500 contact.md', '\u251C\u2500\u2500 education.md', '\u251C\u2500\u2500 experience.md', '\u251C\u2500\u2500 projects/'];
+      if (RESUME.projects) {
+        for (let i = 0; i < RESUME.projects.length; i++) {
+          const prefix = i < RESUME.projects.length - 1 ? '\u2502   \u251C\u2500\u2500 ' : '\u2502   \u2514\u2500\u2500 ';
+          lines.push(prefix + escapeHtml(RESUME.projects[i].slug) + '/');
+        }
+      }
+      lines.push('\u251C\u2500\u2500 resume.md');
+      lines.push('\u2514\u2500\u2500 skills.md');
+      lines.push('');
+      lines.push('<span class="dim">2 directories, ' + (6 + (RESUME.projects ? RESUME.projects.length : 0)) + ' files</span>');
+      return lines;
+    }
+  },
+
+  pwd: { desc: 'Print working directory', run: () => ['/home/' + (RESUME.name || 'user').split(' ')[0].toLowerCase()] },
+
+  date: {
+    desc: 'Current date',
+    run: () => {
+      const d = new Date();
+      return [d.toString()];
+    }
+  },
+
+  uptime: {
+    desc: 'Session uptime',
+    run: () => {
+      const sec = Math.floor((Date.now() - startTime) / 1000);
+      const m = Math.floor(sec / 60);
+      const s = sec % 60;
+      return [`up ${m} min, ${s} sec \u00B7 1 user \u00B7 load avg: 0.42, 0.38, 0.29`];
+    }
+  },
+
+  history: {
+    desc: 'Command history',
+    run: () => {
+      if (!history.length) return ['<span class="dim">(no history yet)</span>'];
+      return history.slice().reverse().map((h, i) =>
+        `  ${String(i+1).padStart(3)}  ${escapeHtml(h)}`);
+    }
+  },
+
+  echo: {
+    desc: 'Echo text',
+    run: (args, raw) => [escapeHtml(raw.substring(raw.indexOf(' ') + 1).trim() || '')]
+  },
+
+  clear: { desc: 'Clear screen', run: () => { output.innerHTML = ''; return 'SILENT'; } },
+  cls: { desc: 'Clear screen (alias)', run: () => { output.innerHTML = ''; return 'SILENT'; } },
+
+  neofetch: {
+    desc: 'System info',
+    run: () => {
+      const user = (RESUME.name || 'user').split(' ')[0].toLowerCase();
+      return [
+        '<span class="bright">           ___</span>           <span class="bright">' + escapeHtml(user) + '@vt220</span>',
+        '<span class="bright">         /     \\</span>         <span class="dim">\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500</span>',
+        '<span class="bright">        | O   O |</span>        <span class="bright">OS:</span>      VT220 Portfolio 4.7',
+        '<span class="bright">        |   ^   |</span>        <span class="bright">Host:</span>    DEC Terminal (circa \'83)',
+        '<span class="bright">        |  ---  |</span>        <span class="bright">Kernel:</span>  phosphor-amber 6.0',
+        '<span class="bright">         \\_____/</span>         <span class="bright">Uptime:</span>  see `uptime`',
+        '<span class="bright">        /|     |\\</span>        <span class="bright">Shell:</span>   portfolio-sh v1.2',
+        '<span class="bright">       / |     | \\</span>       <span class="bright">CPU:</span>     Python 3.12 + Claude',
+        '<span class="bright">         |     |</span>         <span class="bright">Memory:</span>  LLMs (large)',
+        '<span class="bright">         |_____|</span>         <span class="bright">Location:</span> ' + escapeHtml(RESUME.location || 'Unknown'),
+        '<span class="bright">         |     |</span>         <span class="bright">Role:</span>    ' + escapeHtml(RESUME.title || 'Engineer')
+      ];
+    }
+  },
+
+  settings: {
+    desc: 'Open the settings panel',
+    run: () => {
+      openSettings();
+      return 'SILENT';
+    }
+  },
+
+  github: { desc: 'Open GitHub profile', run: () => {
+    const gh = RESUME.github || '';
+    if (gh) window.open('https://github.com/' + encodeURIComponent(gh), '_blank');
+    return [`<span class="dim">Opening github.com/${escapeHtml(gh)}...</span>`];
+  }},
+  linkedin: { desc: 'Open LinkedIn', run: () => {
+    const li = RESUME.linkedin || '';
+    if (li) window.open('https://www.linkedin.com/in/' + encodeURIComponent(li) + '/', '_blank');
+    return [`<span class="dim">Opening LinkedIn profile...</span>`];
+  }},
+  email: { desc: 'Compose email', run: () => {
+    const em = RESUME.email || '';
+    if (em) window.location.href = 'mailto:' + em;
+    return [`<span class="dim">Composing email to ${escapeHtml(em)}...</span>`];
+  }},
+
+  open: {
+    desc: 'Open a link target',
+    run: (args) => {
+      const t = (args[0] || '').toLowerCase();
+      if (t === 'github') return COMMANDS.github.run([]);
+      if (t === 'linkedin') return COMMANDS.linkedin.run([]);
+      if (t === 'email' || t === 'mail') return COMMANDS.email.run([]);
+      return [`<span class="err">open: unknown target '${escapeHtml(t)}'. Try github, linkedin, or email.</span>`];
+    }
+  },
+
+  man: {
+    desc: 'Manual pages',
+    run: (args) => {
+      if (!args.length) return ['<span class="err">man: what manual page do you want?</span>'];
+      const cmd = args[0].toLowerCase();
+      if (COMMANDS[cmd]) {
+        return [
+          `<span class="bright">NAME</span>`,
+          `       ${cmd} - ${COMMANDS[cmd].desc}`,
+          '',
+          `<span class="bright">USAGE</span>`,
+          `       ${cmd}`
+        ];
+      }
+      return [`<span class="err">No manual entry for ${escapeHtml(cmd)}</span>`];
+    }
+  },
+
+  exit: {
+    desc: 'Shut down',
+    run: async () => {
+      waiting = false;
+      promptLine.classList.add('hidden');
+      if (settingsOpen()) closeSettings();
+      appendLine('<span class="dim">logout</span>');
+      appendLine('<span class="dim">Shutting down the system...</span>');
+      await sleep(800);
+      appendLine('<span class="dim">Unmounting filesystems...</span>');
+      await sleep(500);
+      appendLine('<span class="dim">System halted.</span>');
+      await sleep(700);
+      // Fade the terminal to darkness, then cut to pitch black.
+      output.style.transition = 'opacity 0.6s';
+      output.style.opacity = '0';
+      await sleep(650);
+      powerOff();
+      return 'SILENT';
+    }
+  },
+  logout: { desc: 'alias for exit', run: (a) => COMMANDS.exit.run(a) },
+  shutdown: { desc: 'alias for exit', run: (a) => COMMANDS.exit.run(a) },
+
+  /* Easter eggs */
+  sudo: {
+    desc: '(fake)',
+    hidden: true,
+    run: (args) => {
+      const user = (RESUME.name || 'user').split(' ')[0].toLowerCase();
+      if (args[0] === 'rm' && args.includes('-rf')) {
+        return [
+          `<span class="err">[sudo] password for ${escapeHtml(user)}:</span>`,
+          'Nice try.',
+          '<span class="dim">This incident will be reported.</span>'
+        ];
+      }
+      return [
+        `<span class="err">[sudo] password for ${escapeHtml(user)}:</span>`,
+        `Sorry, user ${escapeHtml(user)} is not in the sudoers file.`
+      ];
+    }
+  },
+  vim: { desc: '(fake)', hidden: true, run: () => [
+    '<span class="err">vim: command not found</span>',
+    '<span class="dim">(portfolio-sh ships with ed(1), the standard editor)</span>'
+  ]},
+  emacs: { desc: '(fake)', hidden: true, run: () => [
+    '<span class="err">emacs: command not found</span>',
+    '<span class="dim">(and even if it were, vim would still be better)</span>'
+  ]},
+  cowsay: {
+    desc: '(fake)',
+    hidden: true,
+    run: (args, raw) => {
+      const msg = raw.substring(raw.indexOf(' ') + 1).trim() || ('Hire ' + (RESUME.name || 'me') + '.');
+      const safe = escapeHtml(msg);
+      const border = '-'.repeat(Math.min(msg.length, 40) + 2);
+      return [
+        ' ' + border,
+        `&lt; ${safe} &gt;`,
+        ' ' + border,
+        '        \\   ^__^',
+        '         \\  (oo)\\_______',
+        '            (__)\\       )\\/\\',
+        '                ||----w |',
+        '                ||     ||'
+      ];
+    }
+  },
+  fortune: {
+    desc: '(fake)',
+    hidden: true,
+    run: () => {
+      const quotes = [
+        '"The best way to predict the future is to invent it." \u2014 Alan Kay',
+        '"Talk is cheap. Show me the code." \u2014 Linus Torvalds',
+        '"Simplicity is the ultimate sophistication." \u2014 Leonardo da Vinci',
+        '"Premature optimization is the root of all evil." \u2014 Knuth',
+        '"First, solve the problem. Then, write the code." \u2014 John Johnson',
+        '"There are only two hard things: cache invalidation, naming, and off-by-one errors."',
+        '"In theory, theory and practice are the same. In practice, they are not."'
+      ];
+      return [quotes[Math.floor(Math.random() * quotes.length)]];
+    }
+  }
+};
+
+/* ══════════════════════════════════════════════════════════════
+   COMMAND EXECUTION
+   ══════════════════════════════════════════════════════════════ */
+async function runCommand(raw) {
+  const trimmed = raw.trim();
+  if (!trimmed) return;
+
+  const parts = trimmed.split(/\s+/);
+  const cmd = parts[0].toLowerCase();
+  const args = parts.slice(1);
+
+  const entry = COMMANDS[cmd];
+  if (!entry) {
+    appendLine(`<span class="err">portfolio-sh: command not found: ${escapeHtml(cmd)}</span>`);
+    appendLine(`<span class="dim">Try \`help\` for available commands.</span>`);
+    appendLine('');
+    return;
+  }
+
+  try {
+    const result = await entry.run(args, trimmed);
+    if (result === 'SILENT') return;
+    if (Array.isArray(result)) appendLines(result);
+    else if (typeof result === 'string') appendLine(result);
+    appendLine('');
+  } catch (err) {
+    appendLine(`<span class="err">error: ${escapeHtml(err.message)}</span>`);
+  }
+}
+
+function echoPrompt(cmd) {
+  appendLine(escapeHtml(cmd));
+}
+
+/* ══════════════════════════════════════════════════════════════
+   INPUT HANDLING (mirror to visible cursor)
+   ══════════════════════════════════════════════════════════════ */
+function renderMirror() {
+  const val = input.value;
+  const pos = input.selectionStart ?? val.length;
+  const pre = val.slice(0, pos);
+  const atChar = val.slice(pos, pos + 1);
+  const post = val.slice(pos + 1);
+  typedPre.textContent = pre;
+  cursorChar.innerHTML = atChar ? escapeHtml(atChar) : '&nbsp;';
+  typedPost.textContent = post;
+}
+
+function focusInput() {
+  input.focus({ preventScroll: true });
+}
+
+// Sync mirror on every input event
+input.addEventListener('input', renderMirror);
+input.addEventListener('keyup', renderMirror);
+input.addEventListener('click', renderMirror);
+
+input.addEventListener('keydown', async (e) => {
+  if (settingsOpen()) {
+    e.preventDefault();
+    return;
+  }
+  if (!waiting) {
+    e.preventDefault();
+    return;
+  }
+
+  if (e.key === 'Enter') {
+    e.preventDefault();
+    const cmd = input.value;
+    input.value = '';
+    renderMirror();
+    if (cmd.trim()) {
+      history.unshift(cmd.trim());
+      historyIdx = -1;
+    }
+    echoPrompt(cmd);
+    await runCommand(cmd);
+    scrollBottom();
+  } else if (e.key === 'ArrowUp') {
+    e.preventDefault();
+    if (history.length && historyIdx < history.length - 1) {
+      historyIdx++;
+      input.value = history[historyIdx];
+      setTimeout(() => { input.selectionStart = input.selectionEnd = input.value.length; renderMirror(); }, 0);
+    }
+  } else if (e.key === 'ArrowDown') {
+    e.preventDefault();
+    if (historyIdx > 0) {
+      historyIdx--;
+      input.value = history[historyIdx];
+    } else {
+      historyIdx = -1;
+      input.value = '';
+    }
+    setTimeout(() => { input.selectionStart = input.selectionEnd = input.value.length; renderMirror(); }, 0);
+  } else if (e.key === 'Tab') {
+    e.preventDefault();
+    tabComplete();
+  } else if (e.key === 'l' && e.ctrlKey) {
+    e.preventDefault();
+    output.innerHTML = '';
+  } else if (e.key === 'c' && e.ctrlKey) {
+    // Ctrl+C: abort line
+    e.preventDefault();
+    echoPrompt(input.value + '^C');
+    input.value = '';
+    renderMirror();
+  }
+});
+
+/* Tab completion */
+function tabComplete() {
+  const val = input.value;
+  const parts = val.split(/\s+/);
+  if (parts.length > 1) {
+    // Argument completion for projects, cat, open, man
+    const cmd = parts[0].toLowerCase();
+    const partial = parts[parts.length - 1].toLowerCase();
+    let candidates = [];
+    if (cmd === 'projects') {
+      candidates = RESUME.projects ? RESUME.projects.map(p => p.slug) : [];
+    } else if (cmd === 'cat') {
+      candidates = ['about.md', 'contact.md', 'education.md', 'experience.md', 'resume.md', 'skills.md'];
+    } else if (cmd === 'open') {
+      candidates = ['github', 'linkedin', 'email'];
+    } else if (cmd === 'man') {
+      candidates = Object.keys(COMMANDS).filter(c => !COMMANDS[c].hidden);
+    }
+    const matches = candidates.filter(c => c.startsWith(partial));
+    if (matches.length === 1) {
+      parts[parts.length - 1] = matches[0];
+      input.value = parts.join(' ');
+      setTimeout(() => { input.selectionStart = input.selectionEnd = input.value.length; renderMirror(); }, 0);
+    } else if (matches.length > 1) {
+      appendLine('<span class="dim">' + matches.join('  ') + '</span>');
+      scrollBottom();
+    }
+    return;
+  }
+
+  // Command completion
+  const partial = (parts[0] || '').toLowerCase();
+  if (!partial) return;
+  const all = Object.keys(COMMANDS).filter(c => !COMMANDS[c].hidden);
+  const matches = all.filter(c => c.startsWith(partial));
+  if (matches.length === 1) {
+    input.value = matches[0] + ' ';
+    setTimeout(() => { input.selectionStart = input.selectionEnd = input.value.length; renderMirror(); }, 0);
+  } else if (matches.length > 1) {
+    appendLine('<span class="dim">' + matches.join('  ') + '</span>');
+    scrollBottom();
+  }
+}
+
+/* Focus input whenever user clicks anywhere (except inside settings panel) */
+document.addEventListener('click', (e) => {
+  if (window.getSelection().toString()) return;
+  if (e.target.tagName === 'A') return;
+  if (settingsOpen()) return;
+  focusInput();
+});
+
+document.addEventListener('keydown', (e) => {
+  if (settingsOpen()) {
+    handleSettingsKey(e);
+    return;
+  }
+  if (document.activeElement !== input) focusInput();
+});
+
+/* ══════════════════════════════════════════════════════════════
+   VT320 SET-UP PANEL
+   ══════════════════════════════════════════════════════════════ */
+const SETTINGS_KEY = 'vt220.settings.v2';
+const DEFAULT_SETTINGS = {
+  // All VT320-style toggles store their "ON" label state as boolean:
+  columns: true,       // true = "80 Columns", false = "132 Columns"
+  interpret: true,     // true = "Interpret Controls", false = "Display Controls"
+  autowrap: true,      // true = "No Auto Wrap",       false = "Auto Wrap"
+  smoothscroll: true,  // true = "Smooth Scroll",      false = "Jump Scroll"
+  invert: true,        // true = "Light Text, Dark Screen" (default), false = "Dark Text, Light Screen"
+  cursor: true,        // true = "Cursor",             false = "No Cursor"
+  cursorstyle: true,   // true = "Block Cursor Style", false = "Underline Cursor Style"
+  status: true         // true = "No Status Display",  false = "Indicator Status Display"
+};
+
+function loadSettings() {
+  try {
+    const raw = localStorage.getItem(SETTINGS_KEY);
+    if (!raw) return { ...DEFAULT_SETTINGS };
+    return { ...DEFAULT_SETTINGS, ...JSON.parse(raw) };
+  } catch {
+    return { ...DEFAULT_SETTINGS };
+  }
+}
+
+function saveSettings(s) {
+  try { localStorage.setItem(SETTINGS_KEY, JSON.stringify(s)); } catch {}
+}
+
+let SETTINGS = loadSettings();
+
+function applySettings() {
+  // Screen inversion: "Light Text, Dark Screen" (true) is the normal phosphor;
+  // "Dark Text, Light Screen" (false) flips to dark text on amber.
+  document.body.classList.toggle('invert-screen', !SETTINGS.invert);
+  // Cursor visibility & shape
+  document.body.classList.toggle('cursor-hidden',   !SETTINGS.cursor);
+  document.body.classList.toggle('cursor-underline', !SETTINGS.cursorstyle);
+  // The remaining toggles are authentic VT320 UI state; they persist but
+  // don't materially alter this terminal's behavior (it's already an 80-col
+  // auto-wrapping amber display). They exist so the panel looks and feels
+  // like a real VT320 Set-Up screen.
+  refreshSettingsUI();
+}
+
+function refreshSettingsUI() {
+  document.querySelectorAll('.setup-btn[data-toggle]').forEach(btn => {
+    const key = btn.dataset.toggle;
+    const on  = !!SETTINGS[key];
+    btn.textContent = on ? btn.dataset.on : btn.dataset.off;
+  });
+}
+
+/* ── Arrow-key navigation grid ── */
+let setupFocus = { row: 0, col: 0 };
+
+function getSetupRows() {
+  return [
+    Array.from(document.querySelectorAll('#setup-row-1 .setup-btn')),
+    Array.from(document.querySelectorAll('#setup-row-2 .setup-btn')),
+    Array.from(document.querySelectorAll('#setup-row-3 .setup-btn'))
+  ];
+}
+
+function renderFocus() {
+  document.querySelectorAll('.setup-btn.focused').forEach(el => el.classList.remove('focused'));
+  const rows = getSetupRows();
+  const r = Math.max(0, Math.min(setupFocus.row, rows.length - 1));
+  const row = rows[r];
+  if (!row || !row.length) return;
+  const c = Math.max(0, Math.min(setupFocus.col, row.length - 1));
+  setupFocus = { row: r, col: c };
+  row[c].classList.add('focused');
+}
+
+function handleSettingsKey(e) {
+  const keys = ['ArrowLeft','ArrowRight','ArrowUp','ArrowDown','Enter',' ','Escape','Tab'];
+  if (!keys.includes(e.key)) return;
+  e.preventDefault();
+  e.stopPropagation();
+
+  const rows = getSetupRows();
+
+  if (e.key === 'Escape') { closeSettings(); return; }
+
+  if (e.key === 'ArrowRight' || (e.key === 'Tab' && !e.shiftKey)) {
+    const row = rows[setupFocus.row];
+    setupFocus.col = (setupFocus.col + 1) % row.length;
+  } else if (e.key === 'ArrowLeft' || (e.key === 'Tab' && e.shiftKey)) {
+    const row = rows[setupFocus.row];
+    setupFocus.col = (setupFocus.col - 1 + row.length) % row.length;
+  } else if (e.key === 'ArrowDown') {
+    setupFocus.row = (setupFocus.row + 1) % rows.length;
+    setupFocus.col = Math.min(setupFocus.col, rows[setupFocus.row].length - 1);
+  } else if (e.key === 'ArrowUp') {
+    setupFocus.row = (setupFocus.row - 1 + rows.length) % rows.length;
+    setupFocus.col = Math.min(setupFocus.col, rows[setupFocus.row].length - 1);
+  } else if (e.key === 'Enter' || e.key === ' ') {
+    activateFocusedButton();
+  }
+
+  renderFocus();
+}
+
+function activateFocusedButton() {
+  const rows = getSetupRows();
+  const btn = rows[setupFocus.row][setupFocus.col];
+  if (!btn) return;
+  const action = btn.dataset.action;
+  const toggle = btn.dataset.toggle;
+  if (action === 'close') {
+    closeSettings();
+    return;
+  }
+  if (action === 'next') {
+    // Single-page Set-Up for now — flash the screen to acknowledge.
+    flashSetupScreen();
+    return;
+  }
+  if (toggle) {
+    SETTINGS[toggle] = !SETTINGS[toggle];
+    saveSettings(SETTINGS);
+    applySettings();
+  }
+}
+
+function flashSetupScreen() {
+  const panel = document.getElementById('settings-panel');
+  panel.animate(
+    [{ filter: 'brightness(1)' }, { filter: 'brightness(1.6)' }, { filter: 'brightness(1)' }],
+    { duration: 140, easing: 'ease-out' }
+  );
+}
+
+function settingsOpen() {
+  return document.getElementById('settings-panel').classList.contains('open');
+}
+
+function openSettings() {
+  const panel = document.getElementById('settings-panel');
+  panel.classList.add('open');
+  promptLine.classList.add('hidden');
+  input.blur();
+  setupFocus = { row: 0, col: 0 };
+  renderFocus();
+}
+
+function closeSettings() {
+  const panel = document.getElementById('settings-panel');
+  panel.classList.remove('open');
+  if (waiting) {
+    promptLine.classList.remove('hidden');
+    focusInput();
+  }
+}
+
+applySettings();
+
+/* ══════════════════════════════════════════════════════════════
+   GO
+   ══════════════════════════════════════════════════════════════ */
+const startTime = Date.now();
+renderMirror();
+boot();
+</script>
+</body>
+</html>

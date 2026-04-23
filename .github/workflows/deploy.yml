@@ -1,0 +1,59 @@
+name: Deploy Portfolio
+
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: write
+
+jobs:
+  parse:
+    runs-on: ubuntu-latest
+    # Only parse if resume.pdf changed
+    if: contains(github.event.head_commit.modified, 'resume.pdf') || contains(github.event.head_commit.added, 'resume.pdf')
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - run: pip install -r requirements.txt
+
+      - name: Parse resume
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+        run: python scripts/parse_resume.py
+
+      - name: Commit updated resume.json
+        run: |
+          git config user.email "actions@github.com"
+          git config user.name "GitHub Actions"
+          git add data/resume.json
+          git diff --staged --quiet && echo "No changes to commit" || git commit -m "auto: update resume.json from resume.pdf"
+          git push
+
+  build:
+    needs: parse
+    if: always() && !cancelled()
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main  # Get latest (including parse commit if it ran)
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Build
+        run: python scripts/build.py
+
+      - name: Commit updated dist/index.html
+        run: |
+          git config user.email "actions@github.com"
+          git config user.name "GitHub Actions"
+          git add dist/index.html
+          git diff --staged --quiet && echo "No changes to commit" || git commit -m "auto: rebuild dist from resume.json"
+          git push
