@@ -149,8 +149,11 @@
     font-family: inherit;
     font-size: inherit;
     line-height: 1.0;
-    white-space: pre;
-    overflow-x: auto;
+    white-space: pre-wrap;
+    word-break: break-word;
+    overflow-wrap: break-word;
+    overflow-x: hidden;
+    max-width: 100%;
   }
 
   /* Text tones */
@@ -201,12 +204,14 @@
   /* Typing (intro sim) span */
   .typing { color: var(--fg); }
 
-  /* Banner box border styling */
+  /* Banner: wraps on narrow viewports (ASCII box may break across lines). */
   .banner {
     color: var(--fg);
     font-family: inherit;
     font-size: 0.95em;
-    line-height: 1.0;
+    line-height: 1.15;
+    margin: 0;
+    box-sizing: border-box;
   }
 
   /* Don't allow selection on anything during boot */
@@ -228,6 +233,26 @@
 
   /* Soft gap for spacing */
   .gap { height: 0.5em; }
+
+  /* `resume` command — full-width double rules, centered name/title */
+  .resume-head {
+    text-align: center;
+    margin: 0.15em 0 0.5em;
+    width: 100%;
+    box-sizing: border-box;
+  }
+  .resume-head .resume-rule {
+    border: 0;
+    border-top: 3px double var(--fg-bright);
+    height: 0;
+    margin: 0;
+    width: 100%;
+    box-sizing: border-box;
+  }
+  .resume-head .resume-headline {
+    padding: 0.25em 0.5ch;
+    line-height: 1.3;
+  }
 
   /* ═══════ CRT POWER-ON ANIMATION ═══════ */
   /* Classic CRT turn-on: tiny dot → horizontal line → expands vertically
@@ -298,18 +323,40 @@
   body.no-glow      #terminal    { text-shadow: none !important; }
   body.no-glow      .dim, body.no-glow .err { text-shadow: none !important; }
 
-  /* Dark-Text-on-Light-Screen inverse phosphor mode */
+  /* Dark-Text-on-Light-Screen inverse phosphor mode
+     (Hierarchy mirrors default: bright = strongest, then fg, dim, dimmer.) */
   body.invert-screen {
-    --fg: #1a0e00;
-    --fg-bright: #000000;
-    --fg-dim: #4a3000;
-    --fg-dimmer: #826000;
+    --fg-bright: #0c0602;
+    --fg: #2a1810;
+    --fg-dim: #5a3d28;
+    --fg-dimmer: #7a6048;
+    --fg-err: #a02818;
     --bg: #ffb000;
     --bg-darker: #ffcc55;
   }
-  body.invert-screen #terminal,
-  body.invert-screen .dim,
-  body.invert-screen .err { text-shadow: none; }
+  body.invert-screen #terminal {
+    text-shadow: 0 1px 0 rgba(255, 230, 190, 0.55);
+  }
+  body.invert-screen .bright {
+    color: var(--fg-bright);
+    text-shadow:
+      0 1px 0 rgba(255, 240, 210, 0.85),
+      0 0 10px rgba(255, 170, 40, 0.22);
+  }
+  body.invert-screen .dim {
+    color: var(--fg-dim);
+    text-shadow: 0 0.5px 0 rgba(255, 210, 160, 0.35);
+  }
+  body.invert-screen .err {
+    color: var(--fg-err);
+    text-shadow: 0 0.5px 0 rgba(255, 200, 180, 0.4);
+  }
+  body.invert-screen.no-glow #terminal,
+  body.invert-screen.no-glow .bright,
+  body.invert-screen.no-glow .dim,
+  body.invert-screen.no-glow .err {
+    text-shadow: none !important;
+  }
   body.invert-screen .crt::before {
     background: repeating-linear-gradient(
       to bottom,
@@ -396,6 +443,8 @@
     text-align: center;
     text-shadow: none;
     white-space: nowrap;
+    cursor: pointer;
+    touch-action: manipulation;
   }
 
   .setup-btn.focused {
@@ -480,7 +529,7 @@
       <span class="printer">Printer: None</span>
     </div>
 
-    <div class="setup-hint">← → ↑ ↓ navigate · ENTER select · ESC exit</div>
+    <div class="setup-hint">← → ↑ ↓ navigate · ENTER or tap to select · ESC exit</div>
   </div>
 </div>
 
@@ -600,32 +649,39 @@ async function boot() {
   await sleep(450);
   appendLine('');
 
-  // First (failed) login attempt
-  const l1 = appendLine('vt220 login: <span id="l1"></span>');
-  await sleep(300);
-  await typeInto(document.getElementById('l1'), userName, 70, 45);
-  await sleep(300);
-  const p1 = appendLine('Password: <span id="p1"></span>');
-  await sleep(250);
-  await typeInto(document.getElementById('p1'), '••••••', 90, 40);
-  await sleep(500);
-  appendLine('<span class="err">Login incorrect</span>');
-  await sleep(700);
-  appendLine('');
+  // Login: 50% wrong password once then success; 50% success on first try.
+  const failFirst = Math.random() < 0.5;
 
-  // Second (successful) login
-  const l2 = appendLine('vt220 login: <span id="l2"></span>');
-  await sleep(250);
-  await typeInto(document.getElementById('l2'), userName, 65, 35);
-  await sleep(250);
-  const p2 = appendLine('Password: <span id="p2"></span>');
-  await sleep(200);
-  await typeInto(document.getElementById('p2'), '••••••••', 80, 30);
+  if (failFirst) {
+    const l1 = appendLine('vt220 login: <span id="l1"></span>');
+    await sleep(300);
+    await typeInto(document.getElementById('l1'), userName, 70, 45);
+    await sleep(300);
+    appendLine('Password: <span id="p1"></span>');
+    await sleep(250);
+    await typeInto(document.getElementById('p1'), '••••••', 90, 40);
+    await sleep(500);
+    appendLine('<span class="err">Login incorrect</span>');
+    await sleep(700);
+    appendLine('');
+  }
+
+  const uId = failFirst ? 'l2' : 'l1';
+  const pId = failFirst ? 'p2' : 'p1';
+  appendLine(`vt220 login: <span id="${uId}"></span>`);
+  await sleep(failFirst ? 250 : 300);
+  await typeInto(document.getElementById(uId), userName, failFirst ? 65 : 70, failFirst ? 35 : 45);
+  await sleep(failFirst ? 250 : 300);
+  appendLine(`Password: <span id="${pId}"></span>`);
+  await sleep(failFirst ? 200 : 250);
+  await typeInto(document.getElementById(pId), '••••••••', 80, 30);
   await sleep(600);
 
   // MOTD
   appendLine('Last login: Tue Apr 21 18:02:06 PDT 2026 on tty01');
-  appendLine('You have 1 failed login attempt since the last successful login.');
+  if (failFirst) {
+    appendLine('You have 1 failed login attempt since the last successful login.');
+  }
   await sleep(400);
   appendLine('');
 
@@ -707,31 +763,18 @@ const COMMANDS = {
       '  <span class="bright">whoami</span>       Current user',
       '  <span class="bright">skills</span>       Technical skills',
       '  <span class="bright">experience</span>   Work history',
-      '  <span class="bright">projects</span>     List featured projects',
-      '  <span class="bright">projects</span> &lt;name&gt; Detailed project view',
+      '  <span class="bright">projects</span>     Projects (add &lt;name&gt; for detail)',
       '  <span class="bright">education</span>    Academic history',
       '  <span class="bright">contact</span>      How to reach me',
-      '  <span class="bright">resume</span>       Print full resume',
+      '  <span class="bright">resume</span>       Full resume',
+      '  <span class="bright">cat</span> &lt;file&gt;    Read a section (about.md, skills.md, …)',
+      '  <span class="bright">open</span> &lt;target&gt; github, linkedin, or email',
       '',
-      '  <span class="bright">ls</span>           List files',
-      '  <span class="bright">cat</span> &lt;file&gt;    Print file contents',
-      '  <span class="bright">tree</span>         Directory tree',
-      '  <span class="bright">pwd</span>          Current directory',
-      '',
-      '  <span class="bright">open</span> &lt;target&gt; Open github / linkedin / email',
-      '  <span class="bright">github</span>       Open GitHub profile',
-      '  <span class="bright">linkedin</span>     Open LinkedIn profile',
-      '  <span class="bright">email</span>        Compose an email',
-      '',
-      '  <span class="bright">neofetch</span>     System info',
-      '  <span class="bright">date</span>         Current date',
-      '  <span class="bright">uptime</span>       Session uptime',
-      '  <span class="bright">history</span>      Command history',
-      '  <span class="bright">settings</span>     Open the VT220 Set-Up screen',
+      '  <span class="bright">settings</span>     VT220 display set-up',
       '  <span class="bright">clear</span>        Clear the screen',
       '  <span class="bright">exit</span>         Shut down',
       '',
-      '  <span class="dim">Use Tab for autocomplete, Up/Down for history.</span>'
+      '  <span class="dim">Tab completes · Up/Down for history.</span>'
     ]
   },
 
@@ -748,18 +791,7 @@ const COMMANDS = {
       lines.push(`${escapeHtml(RESUME.title || '')} \u00B7 ${escapeHtml(RESUME.location || '')}`);
       lines.push('');
       if (RESUME.summary) {
-        // Split summary into ~60-char lines for terminal look
-        const words = RESUME.summary.split(' ');
-        let line = '';
-        for (const word of words) {
-          if (line.length + word.length + 1 > 60 && line) {
-            lines.push(escapeHtml(line));
-            line = word;
-          } else {
-            line = line ? line + ' ' + word : word;
-          }
-        }
-        if (line) lines.push(escapeHtml(line));
+        lines.push(escapeHtml(RESUME.summary.trim()));
         lines.push('');
       }
       // Experience summary
@@ -897,9 +929,13 @@ const COMMANDS = {
       const name = (RESUME.name || 'RESUME').toUpperCase();
       const title = (RESUME.title || '').toUpperCase();
       const lines = [];
-      lines.push('<span class="bright">\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550</span>');
-      lines.push(`<span class="bright">  ${escapeHtml(name)} \u00B7 ${escapeHtml(title)}</span>`);
-      lines.push('<span class="bright">\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550</span>');
+      lines.push(
+        '<div class="resume-head">' +
+          '<div class="resume-rule" aria-hidden="true"></div>' +
+          `<div class="resume-headline"><span class="bright">${escapeHtml(name)} \u00B7 ${escapeHtml(title)}</span></div>` +
+          '<div class="resume-rule" aria-hidden="true"></div>' +
+        '</div>'
+      );
       lines.push('');
       return lines.concat(
         COMMANDS.about.run([]), [''],
@@ -1502,6 +1538,23 @@ function closeSettings() {
     focusInput();
   }
 }
+
+/* Tap / click a Set-Up row button: same as moving focus there and pressing Enter (mobile). */
+document.getElementById('settings-panel').addEventListener('click', (e) => {
+  if (!settingsOpen()) return;
+  const btn = e.target.closest('.setup-btn');
+  if (!btn) return;
+  const rows = getSetupRows();
+  for (let r = 0; r < rows.length; r++) {
+    const c = rows[r].indexOf(btn);
+    if (c !== -1) {
+      setupFocus = { row: r, col: c };
+      renderFocus();
+      activateFocusedButton();
+      return;
+    }
+  }
+});
 
 applySettings();
 
