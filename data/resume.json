@@ -1,41 +1,38 @@
 {
   "name": "Abhinav Parameshwaran",
-  "title": "AI Engineer",
+  "title": "AI Engineer | Machine Learning & Data Science | LLM Systems & Agentic AI",
   "location": "Los Angeles, CA",
-  "email": "parameshwaranabhinav@gmail.com",
+  "email": "abhinav.parameshwaran@gmail.com",
   "phone": "+1 (213) 477-9861",
   "github": "Beckendrof",
   "linkedin": "abhinav-parameshwaran",
-  "summary": "AI Engineer with 3+ years of experience building and deploying LLM applications, RAG pipelines, and scalable ML systems for researcher-facing and production environments. Experienced in developing AI workflows across heterogeneous datasets, with strong background in retrieval systems, model evaluation, inference services, and large-scale data pipelines. Skilled in Python, LangGraph, Pinecone, AWS, and end-to-end AI system development with a focus on reliability, performance, and usability.",
+  "summary": "AI Engineer with expertise in LLM systems, agentic AI, and machine learning. Brings hands-on experience building production ML pipelines, RAG systems, and multi-agent architectures, combined with specialized knowledge in computational biology and bioinformatics. Currently at Keck School of Medicine of USC developing intelligent data processing systems and AI-powered research tools.",
   "experience": [
     {
-      "title": "AI Engineer",
+      "title": "AI Data Scientist",
       "company": "Keck School of Medicine of USC",
       "location": "Los Angeles, CA",
       "start": "Nov 2023",
       "end": "Present",
       "bullets": [
-        "Built and deployed an LLM-based reasoning system to extract contextual insights from heterogeneous datasets, supporting downstream analytical workflows for researchers.",
-        "Designed a LangGraph-based orchestration workflow to coordinate retrieval, reasoning, and multi-step task execution across researcher-facing AI pipelines.",
-        "Built a RAG pipeline using Pinecone and optimized embedding/retrieval workflows to improve semantic search relevance and retrieval precision across lab data sources.",
-        "Developed and deployed a low-latency inference service to support internal AI workflows, improving response speed and throughput for researcher-facing applications.",
-        "Architected a 10TB+ data processing pipeline for ML and analytics workloads, improving computational efficiency by 40%.",
-        "Implemented evaluation, monitoring, and data-quality workflows for RAG and ML outputs, reducing false positives by 99% and improving system reliability.",
-        "Developed an anomaly detection model for system monitoring, achieving 92% recall and enabling earlier issue detection in lab workflows."
+        "Designed and deployed automated data processing pipelines handling 10TB+ of scRNA-seq and PacBio sequencing data, supporting computational biology research across 3+ active studies and reducing analysis turnaround time by ~40%.",
+        "Built a classification model for anomaly detection in genomic data achieving 92% accuracy; automated erroneous sample flagging to reduce manual QC overhead by 10%.",
+        "Developed a custom statistical QC algorithm for PacBio sequencing validation using sex-marker expression as ground truth, reducing false-positive variants by 99% and saving thousands in downstream lab validation costs.",
+        "Built LLM-based research assistant tooling using domain-specific prompt engineering and configured Claude workflows with computational biology context to accelerate researcher dry-lab tasks (literature review, code generation, multi-omics interpretation).",
+        "Implemented multi-sample scRNA-seq integration and normalization pipelines; standardized protocols to eliminate batch effects across pooled donor samples and streamline downstream analysis."
       ]
     },
     {
       "title": "Software Developer",
       "company": "Accenture",
       "location": "India",
-      "start": "Jan 2021",
+      "start": "Jun 2022",
       "end": "Apr 2023",
       "bullets": [
-        "Deployed ML inference services on AWS SageMaker and AWS Lambda to serve 1M+ daily requests in production.",
-        "Built an NLP-based document processing pipeline that automated information extraction with 95% accuracy.",
-        "Developed a speech recognition workflow for voice-driven applications, achieving 88.6% accuracy.",
-        "Engineered real-time streaming and ingestion pipelines for ML applications, maintaining 99.9% availability and reducing latency by 35%.",
-        "Optimized backend services, reducing response time by 200 ms for downstream applications and inference workloads."
+        "Developed Python automation utilities and REST APIs using Flask; integrated SQL/Oracle databases, reducing processing time by 25%.",
+        "Wrote pytest unit tests and resolved 50+ production bugs; contributed to CI/CD pipelines for enterprise clients.",
+        "Supported 5+ enterprise client projects in Agile environment; delivered 20+ technical documents and requirement specifications.",
+        "Refactored legacy Python modules and optimized SQL database queries, reducing API response latency by ~150ms for client portal services."
       ]
     }
   ],
@@ -55,53 +52,52 @@
     "AI Engineering": [
       "LLMs",
       "RAG",
+      "Prompt Engineering",
       "LangGraph",
       "LangChain",
-      "Prompt Engineering",
+      "MCP",
       "Semantic Search",
-      "Embeddings",
-      "Pinecone"
+      "Pinecone",
+      "Claude API"
     ],
     "Machine Learning": [
-      "Natural Language Processing (NLP)",
+      "Classification Models",
       "Anomaly Detection",
       "Deep Learning",
-      "Model Evaluation"
+      "NLP",
+      "Model Evaluation",
+      "scikit-learn"
     ],
-    "Data Engineering": [
+    "Bioinformatics": [
+      "scRNA-seq",
+      "PacBio",
+      "Multi-omics",
+      "Single-Cell QC Pipelines",
+      "Statistical Modeling"
+    ],
+    "Data & Backend": [
       "Python",
-      "SQL",
-      "ETL Pipelines",
-      "Real-Time Streaming",
-      "Distributed Systems",
-      "REST APIs"
-    ],
-    "Cloud & MLOps": [
-      "AWS",
-      "SageMaker",
-      "Lambda",
-      "Docker",
-      "Kubernetes",
-      "Terraform",
-      "CI/CD"
-    ],
-    "Programming Languages": [
-      "Python",
-      "SQL",
+      "SQL/Oracle",
+      "Pandas",
+      "NumPy",
       "R",
-      "Java",
-      "C",
-      "C++",
-      "Golang",
-      "JavaScript",
-      "TypeScript"
+      "ETL Pipelines",
+      "REST APIs",
+      "Flask",
+      "pytest"
+    ],
+    "Cloud & Tools": [
+      "AWS",
+      "Docker",
+      "Git",
+      "CI/CD"
     ]
   },
   "projects": [
     {
       "name": "Multi-Agent Trip Concierge & Logic Supervisor",
       "slug": "multi-agent-trip-concierge",
-      "description": "Built a supervised multi-agent system using Python, LangGraph, and Pinecone to ingest unstructured chat logs. Implemented RAG-based reasoning to resolve scheduling conflicts under venue constraints.",
+      "description": "Built a supervised multi-agent system using LangGraph conditional routing and Pinecone RAG to ingest unstructured chat logs and resolve scheduling conflicts under venue constraints. Implemented supervisor pattern with state-aware routing across specialized agents and benchmarked conflict resolution across multiple venue-type combinations.",
       "tech": [
         "Python",
         "LangGraph",
@@ -113,7 +109,7 @@
     {
       "name": "AI Teaching Assistant",
       "slug": "ai-teaching-assistant",
-      "description": "Built a multi-agent chatbot using RAG and Pinecone to support course-content Q&A through a React frontend. Tuned chunk size, Top-K, and temperature to improve RAG retrieval and response quality.",
+      "description": "Built a multi-agent RAG chatbot using Pinecone and MCP to support course-content Q&A through a React frontend serving 300+ students. Integrated MCP for dynamic course material ingestion and implemented response grading and user feedback loops for continuous model refinement.",
       "tech": [
         "MCP",
         "Pinecone",
@@ -125,10 +121,11 @@
     {
       "name": "Social Media Engagement Prediction (DUNEs of Influence)",
       "slug": "social-media-engagement-prediction",
-      "description": "Designed a deep learning model to predict social media engagement, outperforming baseline models by 25%. Trained the model on a custom dataset of Elon Musk's tweets and related Reddit posts.",
+      "description": "Designed a deep learning model to predict social media engagement trained on a custom dataset of 50K+ posts, outperforming baseline models by 25%. Experimented with transformer-based embeddings and temporal features, achieving 0.78 RMSE on hold-out test set and deploying inference API for real-time predictions.",
       "tech": [
         "Deep Learning",
-        "Python"
+        "Python",
+        "NLP"
       ],
       "url": ""
     }
